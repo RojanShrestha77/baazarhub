@@ -1,0 +1,70 @@
+name: bazaarhub
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # Bind to loopback only — accessible from your machine (e.g. Compass) but
+    # not from the network. Remove the ports block entirely for production.
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - bazaar-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override the DB URI so it uses the compose service name, not localhost
+      MONGODB_URI: mongodb://mongo:27017/bazaarhub
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      # Mount uploads directory so files persist across container restarts
+      - uploads-data:/app/uploads
+    networks:
+      - bazaar-net
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runner
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    networks:
+      - bazaar-net
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
+  uploads-data:
+
+networks:
+  bazaar-net:
+    driver: bridge
