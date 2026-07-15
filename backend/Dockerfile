@@ -1,6 +1,12 @@
 # ── Stage 1: install production dependencies ──────────────────────────────────
 FROM node:20-alpine AS deps
 WORKDIR /app
+# Build toolchain for native addons (argon2 compiles from source against musl
+# if no matching prebuilt binary is published for this platform/libc). Only
+# needed here — the runner stage below copies the already-compiled
+# node_modules and never installs anything itself, so none of this ships in
+# the runtime image.
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
 # --omit=dev ensures devDependencies are not installed in the final image
 RUN npm ci --omit=dev
