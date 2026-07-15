@@ -74,9 +74,15 @@ Boundaries that matter specifically for auth:
 - **API ↔ DB**: Mongo has no row-level auth concept relevant here — the app
   is trusted fully. If Mongo is ever reachable directly (misconfigured
   network, exposed port in a bad docker-compose profile, NoSQL injection from
-  the API layer), that boundary collapses. `docker-compose.yml` currently
-  exposes 27017 on the host per the README — `[Q]` is that intended for prod,
-  or dev-only? Worth confirming before this phase closes.
+  the API layer), that boundary collapses. `docker-compose.yml` binds 27017
+  to `127.0.0.1` only (not `0.0.0.0`) — kept for Compass access during dev —
+  and Mongo now requires authentication regardless of network position, since
+  loopback binding is host-level convenience, not an access control: anything
+  else running on the same machine, or a container that later joins the host
+  network, could otherwise reach it unauthenticated. Note that the backend
+  itself never used the host port mapping — it reaches Mongo over the compose
+  network by service name (`mongo:27017`), so the mapping exists purely for
+  the developer's own tooling, not for any in-app path.
 - **API ↔ TOTP secret store**: same DB, but conceptually a *harder* boundary
   than "just another user field" — see design decision #4 below. If you land
   on envelope encryption, the boundary is really "API ↔ KMS/key," not "API ↔
@@ -119,6 +125,12 @@ Marketplace-specific, not generic "hacker":
    history, or proxy traffic. Relevant to: tokens in URLs, verbose error
    messages logged with credentials, TOTP codes or recovery codes ending up
    in server access logs via query strings.
+
+6. **Support/admin insider** — MFA reset tooling and any account-recovery
+   override an admin/support role can trigger is a privilege-escalation
+   path in its own right (see persona 4 above and Trust Boundaries). Parked
+   here as a placeholder; model in Phase 2 once the admin/support role
+   exists.
 
 `[Q]` Is there a "malicious buyer colluding with a malicious seller" scenario
 worth naming (e.g., account takeover used to manufacture fake positive

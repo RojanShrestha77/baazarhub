@@ -6,14 +6,23 @@ services:
     restart: unless-stopped
     # Bind to loopback only — accessible from your machine (e.g. Compass) but
     # not from the network. Remove the ports block entirely for production.
+    # Loopback binding is a convenience, not a control: auth is required below
+    # regardless of network position.
     ports:
       - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
     volumes:
       - mongo-data:/data/db
     networks:
       - bazaar-net
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping')\"",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,8 +37,9 @@ services:
     env_file:
       - .env
     environment:
-      # Override the DB URI so it uses the compose service name, not localhost
-      MONGODB_URI: mongodb://mongo:27017/bazaarhub
+      # Override the DB URI so it uses the compose service name, not localhost,
+      # and authenticates against the admin database.
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/bazaarhub?authSource=admin
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
