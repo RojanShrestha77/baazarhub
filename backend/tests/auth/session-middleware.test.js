@@ -50,12 +50,16 @@ describe("session middleware — expiry re-checking", () => {
 
   it("extends the sliding window on a successful authenticated request", async () => {
     const user = await createUser();
-    const { cookie, session } = await createSession(user, {
+    const { cookies, csrfHeader, session } = await createSession(user, {
       expiresAt: new Date(Date.now() + 60 * 1000), // 1 min left
     });
     const originalExpiresAt = session.expiresAt.getTime();
 
-    const res = await request(app).post("/api/auth/session/refresh").set("Cookie", cookie).send({});
+    const res = await request(app)
+      .post("/api/auth/session/refresh")
+      .set("Cookie", cookies)
+      .set(csrfHeader)
+      .send({});
     expect(res.status).toBe(200);
 
     const updated = await Session.findById(session._id);
@@ -65,12 +69,16 @@ describe("session middleware — expiry re-checking", () => {
   it("caps the extended sliding window at absoluteExpiresAt", async () => {
     const user = await createUser();
     const nearCap = new Date(Date.now() + 60 * 1000); // absolute cap in 1 min
-    const { cookie, session } = await createSession(user, {
+    const { cookies, csrfHeader, session } = await createSession(user, {
       expiresAt: new Date(Date.now() + 30 * 1000),
       absoluteExpiresAt: nearCap,
     });
 
-    const res = await request(app).post("/api/auth/session/refresh").set("Cookie", cookie).send({});
+    const res = await request(app)
+      .post("/api/auth/session/refresh")
+      .set("Cookie", cookies)
+      .set(csrfHeader)
+      .send({});
     expect(res.status).toBe(200);
 
     const updated = await Session.findById(session._id);

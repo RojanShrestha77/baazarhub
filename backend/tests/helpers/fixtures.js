@@ -4,6 +4,7 @@ import { RecoveryCode } from "../../src/models/RecoveryCode.js";
 import { generateSessionToken, hashSessionToken } from "../../src/lib/sessionToken.js";
 import { SESSION_COOKIE_NAME } from "../../src/middleware/session.js";
 import { hashPassword } from "../../src/services/passwordService.js";
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generateCsrfToken } from "../../src/lib/csrf.js";
 
 // Test fixtures only — this is scaffolding to exercise the routes/models,
 // not a stand-in for the auth logic itself. Uses hashPassword() (the real
@@ -29,13 +30,13 @@ export async function createUser(overrides = {}) {
   });
 }
 
-// Returns { rawToken, cookie, session } — rawToken/cookie let a test act as
-// this session over HTTP; session is the raw Mongo document for direct
-// assertions. NOTE: this only produces a document attachSession COULD find
-// once its lookup logic is implemented — today attachSession is a TODO
-// stub that never looks anything up, so requests using this cookie will
-// still see req.session === null. That's expected: these fixtures describe
-// the target contract, they don't fake the implementation.
+// Returns { rawToken, cookie, cookies, csrfToken, csrfHeader, session }.
+// `cookie` is just the session cookie (for routes that don't need CSRF,
+// e.g. GET-ish/read paths). `cookies` bundles session + CSRF cookies
+// together (supertest: .set("Cookie", cookies)) and `csrfHeader` is ready
+// to spread into .set() for routes guarded by requireCsrfToken — which is
+// every authenticated mutating route as of Slice 5, so most tests want
+// `cookies` + `csrfHeader`, not `cookie` alone.
 export async function createSession(user, overrides = {}) {
   const rawToken = generateSessionToken();
   const now = Date.now();
@@ -47,9 +48,17 @@ export async function createSession(user, overrides = {}) {
     mfaVerified: overrides.mfaVerified ?? true,
     revokedAt: overrides.revokedAt,
   });
+
+  const csrfToken = generateCsrfToken();
+  const sessionCookie = `${SESSION_COOKIE_NAME}=${rawToken}`;
+  const csrfCookie = `${CSRF_COOKIE_NAME}=${csrfToken}`;
+
   return {
     rawToken,
-    cookie: `${SESSION_COOKIE_NAME}=${rawToken}`,
+    cookie: sessionCookie,
+    cookies: [sessionCookie, csrfCookie],
+    csrfToken,
+    csrfHeader: { [CSRF_HEADER_NAME]: csrfToken },
     session,
   };
 }

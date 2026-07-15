@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { attachSession, requireSession } from "../middleware/session.js";
+import { attachSession, requireSession, requireMfaVerified } from "../middleware/session.js";
 import {
   loginLimiter,
   registerLimiter,
@@ -28,15 +28,18 @@ import {
   sendRegistrationConfirmation,
   sendExistingAccountNotice,
   sendRecoveryCodeUsedNotice,
+  sendPasswordResetEmail,
 } from "../services/mailService.js";
 import {
   createSession,
   revokeSession,
   revokeAllSessionsForUser,
+  revokeOtherSessionsForUser,
   markMfaVerified,
 } from "../services/sessionService.js";
 import { isInBackoff, registerFailedAttempt, resetFailedAttempts } from "../services/loginAttemptService.js";
 import { setSessionCookie, clearSessionCookie } from "../lib/cookies.js";
+import { generateCsrfToken, setCsrfCookie, requireCsrfToken } from "../lib/csrf.js";
 import {
   generateTotpSecret,
   buildOtpAuthUri,
@@ -45,17 +48,13 @@ import {
   verifyAndConsumeTotp,
 } from "../services/totpService.js";
 import { generateRecoveryCodes, consumeRecoveryCode } from "../services/recoveryCodeService.js";
+import {
+  createPasswordResetToken,
+  consumePasswordResetToken,
+  invalidateAllResetTokensForUser,
+} from "../services/passwordResetService.js";
 
 const router = Router();
-
-function notImplemented(decisionRef) {
-  return (_req, res) => {
-    res.status(501).json({
-      error: "Not implemented",
-      note: `TODO: implement per ${decisionRef}`,
-    });
-  };
-}
 
 const REGISTER_RESPONSE = {
   message: "If this email address is available, your account has been created — you can now log in.",
@@ -170,6 +169,10 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, 
       userAgent: req.get("user-agent"),
     });
     setSessionCookie(res, rawToken);
+    // CSRF cookie issued alongside the session cookie — it's what every
+    // subsequent authenticated mutating request needs to present back as
+    // a header (requireCsrfToken, lib/csrf.js).
+    setCsrfCookie(res, generateCsrfToken());
 
     return res.status(200).json({ mfaRequired: user.mfaEnabled });
   } catch (err) {
@@ -182,6 +185,7 @@ router.post(
   "/logout",
   attachSession,
   requireSession,
+  requireCsrfToken,
   validateBody(logoutSchema),
   async (req, res, next) => {
     try {
@@ -195,7 +199,7 @@ router.post(
 );
 
 // ── Logout everywhere ──────────────────────────────────────────────────
-router.post("/logout-all", attachSession, requireSession, async (req, res, next) => {
+router.post("/logout-all", attachSession, requireSession, requireCsrfToken, async (req, res, next) => {
   try {
     await revokeAllSessionsForUser(req.user._id);
     clearSessionCookie(res);
@@ -211,7 +215,7 @@ router.post("/logout-all", attachSession, requireSession, async (req, res, next)
 // (sessionService.js), not just this endpoint. This exists so a client can
 // explicitly confirm current session state (e.g. after being idle) without
 // that being a side effect of some other action.
-router.post("/session/refresh", attachSession, requireSession, (req, res) => {
+router.post("/session/refresh", attachSession, requireSession, requireCsrfToken, (req, res) => {
   res.status(200).json({
     mfaVerified: req.session.mfaVerified,
     expiresAt: req.session.expiresAt,
@@ -228,6 +232,7 @@ router.post(
   "/mfa/enrol",
   attachSession,
   requireSession,
+  requireCsrfToken,
   mfaEnrolLimiter,
   validateBody(mfaEnrolSchema),
   async (req, res, next) => {
@@ -258,6 +263,7 @@ router.post(
   "/mfa/verify",
   attachSession,
   requireSession,
+  requireCsrfToken,
   mfaVerifyLimiter,
   validateBody(mfaVerifySchema),
   async (req, res, next) => {
@@ -300,6 +306,7 @@ router.post(
   "/mfa/recovery-code/verify",
   attachSession,
   requireSession,
+  requireCsrfToken,
   recoveryCodeLimiter,
   validateBody(recoveryCodeVerifySchema),
   async (req, res, next) => {
@@ -320,43 +327,119 @@ router.post(
 );
 
 // ── Password change (self-service, already authenticated) ───────────────
-// TODO (yours): require current password to be re-verified before
-// accepting the change. On success: kill all OTHER sessions, keep the
-// current one (decision #1 follow-up — self-service flow). This must be a
-// separate code path from password-reset-confirm below, not the same
-// function with a flag.
+// Guarded by requireMfaVerified, not requireSession alone — a stolen
+// pre-MFA session (attacker has the password but not the TOTP device)
+// must not be able to change the password without ever completing MFA
+// (flagged as a requirement back in Slice 3's self-review).
+// On success: kill all OTHER sessions, keep the current one. Separate
+// code path from password/reset/confirm below, not the same function
+// with a flag.
 router.post(
   "/password/change",
   attachSession,
-  requireSession,
+  requireMfaVerified,
+  requireCsrfToken,
   passwordChangeLimiter,
   validateBody(passwordChangeSchema),
-  notImplemented("decision #1 (self-service flow)"),
+  async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = req.validatedBody;
+      const user = req.user;
+
+      const currentValid = await verifyPassword(user.passwordHash, currentPassword);
+      if (!currentValid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      user.passwordHash = await hashPassword(newPassword);
+      user.passwordChangedAt = new Date();
+      await user.save();
+
+      await revokeOtherSessionsForUser(user._id, req.session._id);
+      // A password change via this path must retire any outstanding
+      // reset token too — otherwise an earlier, still-valid reset link
+      // (self-requested and abandoned, or intercepted by an attacker)
+      // can still reset the account later even though the password was
+      // already changed through a different path.
+      await invalidateAllResetTokensForUser(user._id);
+
+      return res.status(200).json({ message: "Password changed" });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
+const RESET_REQUEST_RESPONSE = {
+  message: "If that email address has an account, a reset link has been sent.",
+};
+
 // ── Password reset request ────────────────────────────────────────────────
-// TODO (yours): generic response regardless of whether the email exists
-// (decision #7). Generate a single-use, time-bound, user-bound reset
-// token if the account exists; send it async so response timing doesn't
-// correlate with "an email was actually queued".
+// Decision #7: identical response regardless of whether the email
+// exists. Single-use, time-bound, user-bound token created only for
+// existing accounts; email sent async/fire-and-forget so response timing
+// can't correlate with "was a token actually created and an email
+// queued" — same pattern as registration and login.
 router.post(
   "/password/reset/request",
   passwordResetLimiter,
   validateBody(passwordResetRequestSchema),
-  notImplemented("decision #7"),
+  async (req, res, next) => {
+    try {
+      const { email } = req.validatedBody;
+      const user = await User.findOne({ email });
+
+      if (user) {
+        const rawToken = await createPasswordResetToken(user._id);
+        sendPasswordResetEmail(user.email, rawToken);
+      }
+
+      return res.status(200).json(RESET_REQUEST_RESPONSE);
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── Password reset confirm ────────────────────────────────────────────────
-// TODO (yours): validate the reset token (single-use, not expired, bound
-// to this user), set the new password hash. On success: kill ALL sessions,
-// no exceptions (decision #1 follow-up — recovery flow, "current session"
-// isn't a trustworthy reference point here). Separate code path from
-// password/change above.
+// No session required — the reset token itself is the credential here.
+// On success: kill ALL sessions, no exceptions (decision #1 follow-up —
+// recovery flow; "current session" isn't a trustworthy reference point
+// when the whole point of this flow is "I might not control my
+// sessions anymore"). Separate code path from password/change above.
 router.post(
   "/password/reset/confirm",
   passwordResetLimiter,
   validateBody(passwordResetConfirmSchema),
-  notImplemented("decision #1 (recovery flow)"),
+  async (req, res, next) => {
+    try {
+      const { token, newPassword } = req.validatedBody;
+
+      const consumed = await consumePasswordResetToken(token);
+      if (!consumed) {
+        return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      const user = await User.findById(consumed.userId);
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      user.passwordHash = await hashPassword(newPassword);
+      user.passwordChangedAt = new Date();
+      await user.save();
+
+      await revokeAllSessionsForUser(user._id);
+      // consumePasswordResetToken only marked THIS token used — a second
+      // outstanding token from an earlier reset request for the same
+      // account must not still be usable after this one succeeded.
+      await invalidateAllResetTokensForUser(user._id);
+
+      return res.status(200).json({ message: "Password reset" });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export default router;

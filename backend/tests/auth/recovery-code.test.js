@@ -10,28 +10,31 @@ import { createUser, createSession, createRecoveryCode } from "../helpers/fixtur
 // concurrent requests with the same plaintext code and checks the DB ends
 // up with exactly one consumed code, not zero and not two.
 //
-// Fails now: attachSession is an unimplemented stub (always sees no
-// session), so both requests currently 401 before ever reaching the
-// recovery-code route's TODO body — "exactly one success" is unmet either
-// way. This will start exercising the real path once attachSession's
-// lookup and the recovery-code route are both implemented.
+// Passes against the real implementation (services/recoveryCodeService.js)
+// as of Slice 4 — see the comment there for the documented fork from the
+// original "atomic findOneAndUpdate on {hash, used:false}" plan text:
+// argon2id's random salt makes that literal phrasing impossible, but the
+// atomicity property this test actually checks is preserved via a
+// findOneAndUpdate keyed on {_id, used:false} instead.
 
 const app = createApp();
 
 describe("recovery code — concurrent submission (TOCTOU)", () => {
   it("accepts the same code from exactly one of two concurrent requests", async () => {
     const user = await createUser();
-    const { cookie } = await createSession(user, { mfaVerified: false });
+    const { cookies, csrfHeader } = await createSession(user, { mfaVerified: false });
     const { plaintext } = await createRecoveryCode(user);
 
     const [first, second] = await Promise.all([
       request(app)
         .post("/api/auth/mfa/recovery-code/verify")
-        .set("Cookie", cookie)
+        .set("Cookie", cookies)
+        .set(csrfHeader)
         .send({ code: plaintext }),
       request(app)
         .post("/api/auth/mfa/recovery-code/verify")
-        .set("Cookie", cookie)
+        .set("Cookie", cookies)
+        .set(csrfHeader)
         .send({ code: plaintext }),
     ]);
 
@@ -44,16 +47,18 @@ describe("recovery code — concurrent submission (TOCTOU)", () => {
 
   it("rejects the same code on a second, sequential submission", async () => {
     const user = await createUser();
-    const { cookie } = await createSession(user, { mfaVerified: false });
+    const { cookies, csrfHeader } = await createSession(user, { mfaVerified: false });
     const { plaintext } = await createRecoveryCode(user);
 
     const firstRes = await request(app)
       .post("/api/auth/mfa/recovery-code/verify")
-      .set("Cookie", cookie)
+      .set("Cookie", cookies)
+      .set(csrfHeader)
       .send({ code: plaintext });
     const secondRes = await request(app)
       .post("/api/auth/mfa/recovery-code/verify")
-      .set("Cookie", cookie)
+      .set("Cookie", cookies)
+      .set(csrfHeader)
       .send({ code: plaintext });
 
     expect(firstRes.status).toBe(200);
