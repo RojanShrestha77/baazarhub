@@ -1,20 +1,26 @@
-import argon2 from "argon2";
-
 import { User } from "../../src/models/User.js";
 import { Session } from "../../src/models/Session.js";
 import { RecoveryCode } from "../../src/models/RecoveryCode.js";
 import { generateSessionToken, hashSessionToken } from "../../src/lib/sessionToken.js";
 import { SESSION_COOKIE_NAME } from "../../src/middleware/session.js";
+import { hashPassword } from "../../src/services/passwordService.js";
 
 // Test fixtures only — this is scaffolding to exercise the routes/models,
-// not a stand-in for the auth logic itself (which is TODO throughout
-// src/). Uses argon2id directly per decision #3 since these tests need a
-// user that could plausibly authenticate once login is implemented.
+// not a stand-in for the auth logic itself. Uses hashPassword() (the real
+// service, real ARGON2_OPTIONS) rather than calling argon2.hash directly —
+// an earlier version of this file called argon2.hash(pw, { type: argon2id })
+// with no memoryCost/timeCost/parallelism, which used argon2's *defaults*
+// (parallelism=4) instead of our configured params (parallelism=1). Since
+// argon2 embeds its params in the output hash string, verifyPassword()
+// against that fixture ran at p=4 while the dummy-hash path (built from
+// ARGON2_OPTIONS) ran at p=1 — a large, very real, reproducible timing gap
+// that looked exactly like a decision #7 leak in tests/auth/login-timing.test.js
+// and wasn't: it was this fixture using different hashing params than
+// production code. Always hash test fixtures through the same path
+// production code uses, or timing tests measure the fixture, not the app.
 
 export async function createUser(overrides = {}) {
-  const passwordHash = await argon2.hash(overrides.password || "correct horse battery staple", {
-    type: argon2.argon2id,
-  });
+  const passwordHash = await hashPassword(overrides.password || "correct horse battery staple");
   return User.create({
     email: overrides.email || `user-${Date.now()}-${Math.random()}@example.com`,
     passwordHash,
@@ -52,7 +58,7 @@ export async function createSession(user, overrides = {}) {
 // stored (hashed) document.
 export async function createRecoveryCode(user) {
   const plaintext = generateSessionToken().slice(0, 10);
-  const codeHash = await argon2.hash(plaintext, { type: argon2.argon2id });
+  const codeHash = await hashPassword(plaintext);
   const doc = await RecoveryCode.create({
     userId: user._id,
     codeHash,

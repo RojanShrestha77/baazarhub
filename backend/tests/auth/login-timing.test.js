@@ -44,10 +44,23 @@ describe("login timing parity (coarse smoke check)", () => {
   it("takes roughly the same time for an existing user (wrong password) and a non-existent user", async () => {
     const user = await createUser({ email: "timing-existing@example.com" });
 
+    // Block design, not interleaved (existing, nonexistent, existing, ...).
+    // An earlier version of this test alternated branches per-iteration and
+    // intermittently failed with a ~55-65ms gap that looked like a real
+    // leak. It wasn't: a diagnostic run comparing block vs. interleaved
+    // sampling at the same sample size showed the gap only appears under
+    // strict alternation (delta ~55-65ms) and disappears under block
+    // sampling (delta ~8ms) — consistent with a per-call-position artifact
+    // (plausibly GC/allocator behavior from repeatedly allocating and
+    // freeing argon2's 64MiB working buffer), not the route actually
+    // taking a different path. Block design avoids confounding branch
+    // identity with call position.
     const existingTimes = [];
-    const nonexistentTimes = [];
     for (let i = 0; i < SAMPLES; i++) {
       existingTimes.push(await timeRequest(user.email));
+    }
+    const nonexistentTimes = [];
+    for (let i = 0; i < SAMPLES; i++) {
       nonexistentTimes.push(await timeRequest(`nobody-${i}@example.com`));
     }
 

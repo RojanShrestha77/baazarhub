@@ -21,6 +21,12 @@ import {
   passwordResetRequestSchema,
   passwordResetConfirmSchema,
 } from "../validators/auth.schemas.js";
+import { User } from "../models/User.js";
+import { hashPassword, verifyPassword, verifyAgainstDummyHash } from "../services/passwordService.js";
+import { sendRegistrationConfirmation, sendExistingAccountNotice } from "../services/mailService.js";
+import { createSession } from "../services/sessionService.js";
+import { isInBackoff, registerFailedAttempt, resetFailedAttempts } from "../services/loginAttemptService.js";
+import { setSessionCookie } from "../lib/cookies.js";
 
 const router = Router();
 
@@ -33,32 +39,125 @@ function notImplemented(decisionRef) {
   };
 }
 
+const REGISTER_RESPONSE = {
+  message: "If this email address is available, your account has been created — you can now log in.",
+};
+
 // ── Registration ────────────────────────────────────────────────────────
-// TODO (yours): argon2id-hash the password (decision #3), generic response
-// regardless of whether the email already exists, async "someone tried to
-// register with your email" notification to the existing address instead
-// of a differential response (decision #7).
-router.post(
-  "/register",
-  registerLimiter,
-  validateBody(registerSchema),
-  notImplemented("decision #3 (hashing) and #7 (enumeration)"),
-);
+// Decision #7: identical response (status, body, content-length) whether
+// or not the email is already registered. Existing addresses get a
+// notification email instead of a differential HTTP response (sent async
+// — never awaited before responding, so response timing can't correlate
+// with "an email was actually queued").
+router.post("/register", registerLimiter, validateBody(registerSchema), async (req, res, next) => {
+  try {
+    const { email, password } = req.validatedBody;
+
+    // Hash unconditionally, before branching on existence — same timing-
+    // parity reasoning as login's dummy hash (decision #7). This closes
+    // the dominant signal (argon2id cost); a small residual asymmetry
+    // remains from findOne-vs-findOne+create DB timing, several orders of
+    // magnitude smaller and not addressed here — see login for where the
+    // full timing-parity treatment was actually required.
+    const passwordHash = await hashPassword(password);
+    const existing = await User.findOne({ email });
+
+    if (existing) {
+      sendExistingAccountNotice(existing.email);
+    } else {
+      try {
+        // Explicit allow-list, never a req.body spread — role/sellerTier
+        // are never client-settable (see models/User.js).
+        await User.create({ email, passwordHash });
+        sendRegistrationConfirmation(email);
+      } catch (err) {
+        // Two concurrent registrations for the same new email both pass
+        // findOne before either insert lands — the loser hits the unique
+        // index (E11000), not a real server error. Treat it the same as
+        // "already existed": same generic response, not a 500. Without
+        // this, a race condition is a distinguishable status code, which
+        // undermines decision #7 under concurrent requests specifically.
+        if (err?.code !== 11000) throw err;
+      }
+    }
+
+    return res.status(201).json(REGISTER_RESPONSE);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const LOGIN_FAILURE_RESPONSE = { error: "Invalid email or password" };
 
 // ── Login ───────────────────────────────────────────────────────────────
-// TODO (yours): constant-time-equivalent handling for existent vs
-// non-existent users — hash against a precomputed dummy argon2id hash on
-// the non-existent path so timing doesn't split (decision #7). Identical
-// response body/status/headers on both failure branches. Issue a Session
-// doc with mfaVerified: false if the account has MFA enabled, or a fully
-// verified session if not. Advance User.loginFailure backoff state on
-// failure, reset on success (decision #6).
-router.post(
-  "/login",
-  loginLimiter,
-  validateBody(loginSchema),
-  notImplemented("decision #3, #6 and #7"),
-);
+// Decision #7: real argon2id verify against the user's hash, or against a
+// precomputed dummy hash if no such user — never a sleep, never a
+// short-circuit. Identical status/body on every failure branch.
+//
+// FIXME (documented fork — decision #6 vs #7): a naive backoff check
+// short-circuits BEFORE hashing once an account is in its backoff window,
+// which is fast and therefore distinguishable from the full-cost path a
+// fresh account takes — that reopens the exact timing leak decision #7
+// closed. Resolved by never letting backoff skip the hash: it only
+// affects whether an otherwise-correct password is honored, not whether
+// the work happens. Cost: some wasted CPU hashing during an attacker's
+// own backoff window — bounded by loginLimiter's per-IP cap regardless.
+router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, next) => {
+  try {
+    const { email, password } = req.validatedBody;
+    const user = await User.findOne({ email });
+
+    const passwordValid = user
+      ? await verifyPassword(user.passwordHash, password)
+      : await verifyAgainstDummyHash(password).then(() => false);
+
+    const backoffActive = user ? isInBackoff(user) : false;
+    const success = passwordValid && !backoffActive;
+
+    if (!success) {
+      // NOT awaited: registerFailedAttempt does a Mongoose save() that
+      // only happens for existing users. This was originally awaited —
+      // the coarse smoke test (tests/auth/login-timing.test.js) caught a
+      // real ~65ms gap from it, far larger than the "residual, orders of
+      // magnitude smaller" assumption it shipped with. Fire-and-forget,
+      // same pattern as sendMailAsync, so response timing can't reflect
+      // whether a DB write happened.
+      //
+      // Only extend backoff on an ACTUALLY wrong password, not on a
+      // correct password that was merely blocked by an active backoff
+      // window — self-review caught that the naive version let a
+      // legitimate user impatiently retrying their correct password
+      // during backoff keep re-extending their own lockout indefinitely.
+      // Backoff still holds (success stays false either way); it just
+      // stops being self-reinforcing.
+      if (user && !passwordValid) {
+        registerFailedAttempt(user).catch((err) => {
+          console.error("registerFailedAttempt failed:", err.message);
+        });
+      }
+      return res.status(401).json(LOGIN_FAILURE_RESPONSE);
+    }
+
+    await resetFailedAttempts(user);
+
+    // Decision #1 / session-fixation defense: always a brand-new session,
+    // never reused across the anonymous -> authenticated boundary.
+    // mfaVerified starts true only if the account has no MFA enrolled —
+    // otherwise the client must complete /mfa/verify before this session
+    // is treated as fully authenticated (requireMfaVerified).
+    const { rawToken } = await createSession({
+      userId: user._id,
+      mfaVerified: !user.mfaEnabled,
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+    setSessionCookie(res, rawToken);
+
+    return res.status(200).json({ mfaRequired: user.mfaEnabled });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── Logout (current session only) ──────────────────────────────────────
 // TODO (yours): revoke the current Session doc, clear the cookie.
