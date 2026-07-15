@@ -40,19 +40,35 @@ const userSchema = new Schema(
       trim: true,
     },
 
-    // argon2id hash (decision #3). TODO (yours): hashing/verification calls,
-    // and the dummy-hash-on-nonexistent-user timing parity path (decision #7).
+    // argon2id hash (decision #3) — see src/services/passwordService.js.
     passwordHash: { type: String, required: true },
 
     // Set whenever the password changes, by EITHER flow (decision #1
-    // follow-up). Your session-invalidation logic reads this — it does not
-    // by itself invalidate anything.
+    // follow-up: self-service and reset both touch this, but revoke
+    // sessions differently — see sessionService.js).
     passwordChangedAt: { type: Date },
 
+    // Mass-assignment targets (threat model, Tampering) — role and tier
+    // must never be settable from request body. Enforced at TWO layers:
+    // (1) the zod schemas in validators/auth.schemas.js only whitelist
+    // {email, password}-shaped input and silently strip anything else by
+    // default (no .passthrough()), and (2) every User.create()/update()
+    // call site builds an explicit field list rather than spreading
+    // req.body or even req.validatedBody. Neither layer is optional —
+    // either one alone is one refactor away from a hole.
     role: {
       type: String,
       enum: ["buyer", "seller", "admin"],
       default: "buyer",
+    },
+
+    // Seller verification tier (README: "tiered seller verification").
+    // Same mass-assignment reasoning as role — only an admin-only code
+    // path (not built in this phase) should ever change this.
+    sellerTier: {
+      type: String,
+      enum: ["unverified", "basic", "verified", "premium"],
+      default: "unverified",
     },
 
     mfaEnabled: { type: Boolean, default: false },
@@ -66,8 +82,4 @@ const userSchema = new Schema(
 
 userSchema.index({ email: 1 }, { unique: true });
 
-// TODO (yours): never construct this model from a raw req.body spread —
-// that's the mass-assignment path flagged in the threat model (client
-// sending { role: "admin" } or similar). Build an explicit allow-list per
-// endpoint (e.g. { email, passwordHash } for registration) instead.
 export const User = mongoose.model("User", userSchema);

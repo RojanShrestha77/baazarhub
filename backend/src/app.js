@@ -35,5 +35,13 @@ export function createApp() {
     res.json({ message: "BazaarHub API" });
   });
 
+  // Threat model (Information Disclosure): never let a stack trace or raw
+  // error message reach the client. Express's default error handler does
+  // exactly that if this isn't registered.
+  app.use((err, _req, res, _next) => {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  });
+
   return app;
 }
