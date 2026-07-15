@@ -23,9 +23,14 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
-export const logoutSchema = z.object({}).passthrough();
+// No body expected. .strict() over .passthrough(): neither handler reads
+// req.validatedBody today (harmless either way right now), but .strict()
+// rejects unknown fields outright rather than silently accepting and
+// discarding them — defense-in-depth if either handler ever changes to
+// read from the body.
+export const logoutSchema = z.object({}).strict();
 
-export const mfaEnrolSchema = z.object({}).passthrough();
+export const mfaEnrolSchema = z.object({}).strict();
 
 export const mfaVerifySchema = z.object({
   code: z.string().regex(/^\d{6}$/, "TOTP code must be 6 digits"),

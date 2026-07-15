@@ -4,6 +4,7 @@ import { attachSession, requireSession } from "../middleware/session.js";
 import {
   loginLimiter,
   registerLimiter,
+  mfaEnrolLimiter,
   mfaVerifyLimiter,
   recoveryCodeLimiter,
   passwordResetLimiter,
@@ -23,10 +24,27 @@ import {
 } from "../validators/auth.schemas.js";
 import { User } from "../models/User.js";
 import { hashPassword, verifyPassword, verifyAgainstDummyHash } from "../services/passwordService.js";
-import { sendRegistrationConfirmation, sendExistingAccountNotice } from "../services/mailService.js";
-import { createSession, revokeSession, revokeAllSessionsForUser } from "../services/sessionService.js";
+import {
+  sendRegistrationConfirmation,
+  sendExistingAccountNotice,
+  sendRecoveryCodeUsedNotice,
+} from "../services/mailService.js";
+import {
+  createSession,
+  revokeSession,
+  revokeAllSessionsForUser,
+  markMfaVerified,
+} from "../services/sessionService.js";
 import { isInBackoff, registerFailedAttempt, resetFailedAttempts } from "../services/loginAttemptService.js";
 import { setSessionCookie, clearSessionCookie } from "../lib/cookies.js";
+import {
+  generateTotpSecret,
+  buildOtpAuthUri,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  verifyAndConsumeTotp,
+} from "../services/totpService.js";
+import { generateRecoveryCodes, consumeRecoveryCode } from "../services/recoveryCodeService.js";
 
 const router = Router();
 
@@ -201,49 +219,104 @@ router.post("/session/refresh", attachSession, requireSession, (req, res) => {
 });
 
 // ── MFA enrolment ────────────────────────────────────────────────────────
-// TODO (yours): generate a TOTP secret, encrypt it (AES-256-GCM) before
-// storage with the current TOTP_KEY_VERSION (decision #4), return the
-// provisioning URI/QR to the client ONCE — never re-return the raw secret
-// from any other endpoint afterward. Also generate the initial recovery
-// code batch here (decision #5) and show them to the user exactly once.
+// Generates and stores an encrypted TOTP secret, plus a fresh recovery
+// code batch — both returned ONCE, in this response only. mfaEnabled
+// stays false until /mfa/verify confirms the user can actually generate a
+// valid code; enrolling without ever confirming would risk locking users
+// out with a secret they never actually captured correctly.
 router.post(
   "/mfa/enrol",
   attachSession,
   requireSession,
+  mfaEnrolLimiter,
   validateBody(mfaEnrolSchema),
-  notImplemented("decision #4 and #5"),
+  async (req, res, next) => {
+    try {
+      const user = req.user;
+      const secret = generateTotpSecret();
+
+      user.totpSecret = encryptTotpSecret(secret);
+      user.totpLastUsedStep = undefined;
+      await user.save();
+
+      const recoveryCodes = await generateRecoveryCodes(user._id);
+      const otpauthUri = buildOtpAuthUri(secret, user.email);
+
+      return res.status(200).json({ otpauthUri, secret, recoveryCodes });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── MFA verify (completes login, or confirms enrolment) ─────────────────
-// TODO (yours): decrypt the stored secret, verify the TOTP code with a
-// bounded window for clock skew, mark the Session's mfaVerified: true on
-// success. This endpoint is a brute-force target independent of login's
-// rate limit (1,000,000 possible codes) — mfaVerifyLimiter below is
-// necessary but not sufficient on its own; consider per-account backoff
-// here too, same reasoning as decision #6.
+// Independent rate limit from login (mfaVerifyLimiter) — necessary but
+// not sufficient alone against the 1,000,000-code brute-force space;
+// replay prevention (totpLastUsedStep) closes a different gap (a captured
+// code can't be reused, whether by an attacker or by accident).
 router.post(
   "/mfa/verify",
   attachSession,
   requireSession,
   mfaVerifyLimiter,
   validateBody(mfaVerifySchema),
-  notImplemented("decision #4 and #6"),
+  async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user.totpSecret) {
+        return res.status(400).json({ error: "MFA is not enrolled for this account" });
+      }
+
+      const secret = decryptTotpSecret(user.totpSecret);
+      const step = verifyAndConsumeTotp(secret, req.validatedBody.code, user.totpLastUsedStep);
+
+      if (step === null) {
+        return res.status(401).json({ error: "Invalid or expired code" });
+      }
+
+      user.totpLastUsedStep = step;
+      if (!user.mfaEnabled) {
+        user.mfaEnabled = true; // first successful verify confirms enrolment
+      }
+      await user.save();
+
+      await markMfaVerified(req.session._id);
+
+      return res.status(200).json({ mfaVerified: true });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── Recovery code verify ─────────────────────────────────────────────────
-// TODO (yours): ONE atomic findOneAndUpdate matching
-// { userId, codeHash, used: false } setting { used: true, usedAt }. See
-// the comment in models/RecoveryCode.js — a separate look-up-then-write
-// reintroduces the TOCTOU race tests/auth/recovery-code.test.js checks for.
-// Notify the user by email on use (decision #5), independent rate limit
-// from MFA verify (decision #6).
+// See the comment in services/recoveryCodeService.js: argon2id's random
+// salt means codes can't be looked up by exact hash equality, so
+// identifying the matching document requires a read-only verify pass
+// first. The actual state change is still exactly one atomic
+// findOneAndUpdate keyed on {_id, used:false} — that's what closes the
+// TOCTOU race tests/auth/recovery-code.test.js checks for, not the read.
 router.post(
   "/mfa/recovery-code/verify",
   attachSession,
   requireSession,
   recoveryCodeLimiter,
   validateBody(recoveryCodeVerifySchema),
-  notImplemented("decision #5 and #6"),
+  async (req, res, next) => {
+    try {
+      const consumed = await consumeRecoveryCode(req.user._id, req.validatedBody.code);
+      if (!consumed) {
+        return res.status(400).json({ error: "Invalid or already-used recovery code" });
+      }
+
+      await markMfaVerified(req.session._id);
+      sendRecoveryCodeUsedNotice(req.user.email);
+
+      return res.status(200).json({ mfaVerified: true });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── Password change (self-service, already authenticated) ───────────────

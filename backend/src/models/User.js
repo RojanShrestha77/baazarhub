@@ -74,6 +74,11 @@ const userSchema = new Schema(
     mfaEnabled: { type: Boolean, default: false },
     totpSecret: { type: totpSecretSchema, default: undefined },
     mfaEnrolledAt: { type: Date },
+    // TOTP replay prevention (decision #4/#6 discussion): the absolute
+    // step number of the last successfully-consumed code. Not secret —
+    // just a counter — so it doesn't need encryption the way totpSecret
+    // does. See services/totpService.js.
+    totpLastUsedStep: { type: Number },
 
     loginFailure: { type: loginFailureSchema, default: () => ({}) },
   },

@@ -43,6 +43,19 @@ export const registerLimiter = rateLimit({
   handler: jsonRateLimitHandler,
 });
 
+// Self-review finding (Slice 4): /mfa/enrol does 10 sequential argon2id
+// hashes for the recovery-code batch — ~1.7s of real CPU per call,
+// measured. Without a limiter, an authenticated attacker (or anyone with
+// a stolen session) could hammer it for sustained CPU exhaustion. Tighter
+// than mfaVerifyLimiter since each call is far more expensive per-request.
+export const mfaEnrolLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
 export const mfaVerifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
