@@ -24,9 +24,9 @@ import {
 import { User } from "../models/User.js";
 import { hashPassword, verifyPassword, verifyAgainstDummyHash } from "../services/passwordService.js";
 import { sendRegistrationConfirmation, sendExistingAccountNotice } from "../services/mailService.js";
-import { createSession } from "../services/sessionService.js";
+import { createSession, revokeSession, revokeAllSessionsForUser } from "../services/sessionService.js";
 import { isInBackoff, registerFailedAttempt, resetFailedAttempts } from "../services/loginAttemptService.js";
-import { setSessionCookie } from "../lib/cookies.js";
+import { setSessionCookie, clearSessionCookie } from "../lib/cookies.js";
 
 const router = Router();
 
@@ -160,36 +160,45 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, 
 });
 
 // ── Logout (current session only) ──────────────────────────────────────
-// TODO (yours): revoke the current Session doc, clear the cookie.
 router.post(
   "/logout",
   attachSession,
   requireSession,
   validateBody(logoutSchema),
-  notImplemented("decision #1"),
+  async (req, res, next) => {
+    try {
+      await revokeSession(req.session._id);
+      clearSessionCookie(res);
+      return res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── Logout everywhere ──────────────────────────────────────────────────
-// TODO (yours): revoke every Session doc for req.user, clear the cookie
-// on this response.
-router.post(
-  "/logout-all",
-  attachSession,
-  requireSession,
-  notImplemented("decision #1"),
-);
+router.post("/logout-all", attachSession, requireSession, async (req, res, next) => {
+  try {
+    await revokeAllSessionsForUser(req.user._id);
+    clearSessionCookie(res);
+    return res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── Session refresh ─────────────────────────────────────────────────────
-// TODO (yours): this may not need its own route if attachSession already
-// performs sliding-window extension on every authenticated request — decide
-// whether an explicit refresh endpoint is needed or whether this is a no-op
-// that just confirms current session state to the client.
-router.post(
-  "/session/refresh",
-  attachSession,
-  requireSession,
-  notImplemented("decision #1 (sliding TTL)"),
-);
+// No-op beyond what attachSession already does: the sliding-window
+// extension happens on every authenticated request via findValidSession
+// (sessionService.js), not just this endpoint. This exists so a client can
+// explicitly confirm current session state (e.g. after being idle) without
+// that being a side effect of some other action.
+router.post("/session/refresh", attachSession, requireSession, (req, res) => {
+  res.status(200).json({
+    mfaVerified: req.session.mfaVerified,
+    expiresAt: req.session.expiresAt,
+  });
+});
 
 // ── MFA enrolment ────────────────────────────────────────────────────────
 // TODO (yours): generate a TOTP secret, encrypt it (AES-256-GCM) before

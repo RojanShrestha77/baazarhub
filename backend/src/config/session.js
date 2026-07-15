@@ -1,3 +1,7 @@
+// Decision #2. Lives here (not in middleware/session.js or lib/cookies.js)
+// so those two modules don't need to import from each other.
+export const SESSION_COOKIE_NAME = "__Host-bazaarhub-session";
+
 // Decision #1 follow-ups: sliding window + independent absolute cap.
 export const SESSION_SLIDING_WINDOW_MS = 30 * 60 * 1000; // 30 min of inactivity -> expired
 export const SESSION_ABSOLUTE_CAP_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, no matter how active

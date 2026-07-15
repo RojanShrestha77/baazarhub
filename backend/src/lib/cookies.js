@@ -1,5 +1,4 @@
-import { SESSION_COOKIE_NAME } from "../middleware/session.js";
-import { SESSION_ABSOLUTE_CAP_MS } from "../config/session.js";
+import { SESSION_COOKIE_NAME, SESSION_ABSOLUTE_CAP_MS } from "../config/session.js";
 
 // Decision #2: httpOnly (JS can't read it, narrows XSS to "attacker rides
 // along live" rather than "attacker exfiltrates a portable credential)),

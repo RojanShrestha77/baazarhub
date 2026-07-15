@@ -1,12 +1,13 @@
 // Session lookup middleware (decision #1 + #2). The session token lives in
 // an httpOnly, Secure, SameSite=Lax, __Host-prefixed cookie — never in a
-// response body, never in localStorage. This file wires the plumbing
-// (cookie name, attaching req.session/req.user, next()); the actual lookup,
-// expiry re-check, and sliding-window extension are yours to write.
-//
-// src/lib/sessionToken.js has hashSessionToken(rawToken) ready to use below.
+// response body, never in localStorage.
 
-export const SESSION_COOKIE_NAME = "__Host-bazaarhub-session";
+import { findValidSession } from "../services/sessionService.js";
+import { User } from "../models/User.js";
+import { clearSessionCookie } from "../lib/cookies.js";
+import { SESSION_COOKIE_NAME } from "../config/session.js";
+
+export { SESSION_COOKIE_NAME };
 
 // Attach to any route that may optionally have a session (e.g. to vary
 // behaviour without requiring auth). Does not reject unauthenticated
@@ -21,20 +22,34 @@ export async function attachSession(req, res, next) {
     return next();
   }
 
-  // TODO (yours):
-  // 1. Hash the raw token with hashSessionToken(token) (never query Session
-  //    by raw token — mirrors why we don't store raw tokens either).
-  // 2. Look up Session by tokenHash.
-  // 3. Re-check expiresAt AND absoluteExpiresAt yourself here — the TTL
-  //    index is garbage collection, not enforcement (see Session.js).
-  //    A session past either expiry must be treated as invalid even if
-  //    the document hasn't been physically reaped yet.
-  // 4. Check revokedAt is not set.
-  // 5. If valid: extend the sliding window (update expiresAt, capped by
-  //    absoluteExpiresAt), update lastSeenAt, and set req.session / req.user.
-  // 6. If invalid for any reason: clear the cookie and leave req.session
-  //    null — do not distinguish "expired" vs "revoked" vs "not found" in
-  //    any response signal (enumeration/reconnaissance parity, decision #7).
+  try {
+    // findValidSession (services/sessionService.js) re-checks expiresAt
+    // AND absoluteExpiresAt itself, checks revokedAt, and extends the
+    // sliding window on success — the TTL index is garbage collection,
+    // not enforcement (see models/Session.js). It never distinguishes
+    // "expired" vs "revoked" vs "not found" — all three just come back
+    // null here, so this middleware can't leak that distinction either
+    // (enumeration/reconnaissance parity, decision #7).
+    const session = await findValidSession(token);
+
+    if (!session) {
+      clearSessionCookie(res);
+      return next();
+    }
+
+    const user = await User.findById(session.userId);
+    if (!user) {
+      // Session outlived its user (shouldn't happen without a separate
+      // user-deletion path, but fail closed rather than assume).
+      clearSessionCookie(res);
+      return next();
+    }
+
+    req.session = session;
+    req.user = user;
+  } catch (err) {
+    return next(err);
+  }
 
   next();
 }
