@@ -58,6 +58,10 @@ services:
       SMTP_PORT: 1025
     ports:
       - "127.0.0.1:5000:5000"
+    # Without a cap, "how much memory can concurrent argon2id hashing use"
+    # has no real answer to test against — see tests/bench/argon2-concurrency.js
+    # and src/config/argon2.js for the measurement this limit is sized around.
+    mem_limit: 512m
     volumes:
       # Mount uploads directory so files persist across container restarts
       - uploads-data:/app/uploads
