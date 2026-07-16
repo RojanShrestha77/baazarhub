@@ -1,32 +1,37 @@
-# ── Stage 1: install production dependencies ──────────────────────────────────
-FROM node:20-alpine AS deps
+# ── Stage 1: install all deps and compile TypeScript ─────────────────────────
+FROM node:20-alpine AS build
 WORKDIR /app
-# Build toolchain for native addons (argon2 compiles from source against musl
-# if no matching prebuilt binary is published for this platform/libc). Only
-# needed here — the runner stage below copies the already-compiled
-# node_modules and never installs anything itself, so none of this ships in
-# the runtime image.
+# Build toolchain for native addons (argon2, sharp compile from source
+# against musl if no matching prebuilt binary exists for this platform/libc).
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
-# --omit=dev ensures devDependencies are not installed in the final image
+RUN npm ci
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+# ── Stage 2: production dependencies only ────────────────────────────────────
+FROM node:20-alpine AS deps
+WORKDIR /app
+RUN apk add --no-cache python3 make g++
+COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-# ── Stage 2: runtime image ────────────────────────────────────────────────────
+# ── Stage 3: runtime image ───────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Create a non-root user. Running as root inside a container is a significant
-# risk — if the app is compromised, the attacker has root inside the container.
+# Non-root user — if the app is compromised the attacker isn't root.
 RUN addgroup -S bazaar && adduser -S bazaar -G bazaar
 
-# Copy only the production node_modules and application source
+# Copy production node_modules and the compiled JS output only — no source,
+# no dev tooling, no TypeScript compiler in the runtime image.
 COPY --from=deps /app/node_modules ./node_modules
-COPY src/ ./src/
+COPY --from=build /app/dist ./dist
 COPY package.json ./
 
-# Drop privileges before starting the process
 USER bazaar
 
 EXPOSE 5000
 
-CMD ["node", "src/server.js"]
+CMD ["node", "dist/index.js"]
