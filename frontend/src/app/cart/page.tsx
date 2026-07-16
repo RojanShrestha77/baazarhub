@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Trash2, ShoppingCart, Minus, Plus } from "lucide-react";
-import { api, API_BASE } from "@/lib/api";
-import type { Cart, ResolvedCartItem } from "@/types";
+import { api } from "@/lib/api";
+import type { Cart } from "@/types";
 import { formatPrice } from "@/types";
 import toast from "react-hot-toast";
 

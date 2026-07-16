@@ -11,13 +11,13 @@ import type { Order } from "@/types";
 import { formatPrice } from "@/types";
 
 const statusStyles: Record<string, string> = {
-  pending_payment: "bg-yellow-100 text-yellow-800",
-  paid: "bg-blue-100 text-blue-800",
+  created: "bg-yellow-100 text-yellow-800",
+  payment_held: "bg-blue-100 text-blue-800",
   shipped: "bg-purple-100 text-purple-800",
   delivered: "bg-green-100 text-green-800",
   disputed: "bg-red-100 text-red-800",
   released: "bg-gray-100 text-gray-800",
-  cancelled: "bg-gray-100 text-gray-800",
+  refunded: "bg-gray-100 text-gray-800",
 };
 
 export default function OrdersPage() {
@@ -46,11 +46,11 @@ export default function OrdersPage() {
       <h1 className="text-3xl font-bold text-gray-900 mb-8">My Orders</h1>
       <div className="space-y-4">
         {orders.map((order, i) => (
-          <motion.div key={order.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-            <Link href={`/orders/${order.id}`} className="block bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all">
+          <motion.div key={order._id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+            <Link href={`/orders/${order._id}`} className="block bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <p className="font-semibold text-gray-900">{order.listingTitle}</p>
+                  <p className="font-semibold text-gray-900">{order.listingSnapshot?.title || "Order"}</p>
                   <p className="text-sm text-gray-500 mt-1">{new Date(order.createdAt).toLocaleDateString()} — {formatPrice(order.totalMinorUnits)}</p>
                 </div>
                 <div className="flex items-center gap-3">

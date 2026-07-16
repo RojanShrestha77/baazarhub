@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "./api";
+import { api } from "./api";
 import type { UserProfile } from "@/types";
 
 interface AuthContextValue {
@@ -30,10 +30,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.get<UserProfile>("/profiles/me");
       setUser(data);
-      return data;
     } catch {
       setUser(null);
-      return null;
     } finally {
       setLoading(false);
     }

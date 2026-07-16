@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Package, Truck, CheckCircle, AlertTriangle, Shield } from "lucide-react";
+import { Truck, CheckCircle, AlertTriangle, Shield } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Order } from "@/types";
@@ -11,9 +11,9 @@ import { formatPrice } from "@/types";
 import toast from "react-hot-toast";
 
 const statusLabels: Record<string, string> = {
-  pending_payment: "Pending Payment", paid: "Paid", shipped: "Shipped",
+  created: "Created", payment_held: "Payment Held", shipped: "Shipped",
   delivered: "Delivered", disputed: "Disputed", released: "Completed",
-  cancelled: "Cancelled",
+  refunded: "Refunded",
 };
 
 export default function OrderDetailPage() {
@@ -54,18 +54,18 @@ export default function OrderDetailPage() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">{order.listingTitle}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{order.listingSnapshot?.title || "Order"}</h1>
             <span className={`text-sm font-medium px-3 py-1.5 rounded-full capitalize ${statusLabels[order.status] ? "bg-indigo-100 text-indigo-800" : "bg-gray-100"}`}>{statusLabels[order.status] || order.status}</span>
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><span className="text-gray-500">Quantity</span><p className="font-medium">{order.quantity}</p></div>
-            <div><span className="text-gray-500">Unit Price</span><p className="font-medium">{formatPrice(order.unitPriceMinorUnits)}</p></div>
+            <div><span className="text-gray-500">Unit Price</span><p className="font-medium">{formatPrice(order.listingSnapshot?.priceMinorUnits || 0)}</p></div>
             <div><span className="text-gray-500">Total</span><p className="font-medium text-indigo-600">{formatPrice(order.totalMinorUnits)}</p></div>
             <div><span className="text-gray-500">Placed</span><p className="font-medium">{new Date(order.createdAt).toLocaleDateString()}</p></div>
           </div>
         </div>
 
-        {(order.status === "paid" || order.status === "shipped" || order.status === "delivered") && (
+        {(order.status === "payment_held" || order.status === "shipped") && (
           <div className="bg-indigo-50 rounded-2xl p-4 mb-6 flex items-start gap-3">
             <Shield className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-indigo-900">Funds held in escrow. Released when you confirm delivery.</p>
@@ -73,7 +73,7 @@ export default function OrderDetailPage() {
         )}
 
         <div className="space-y-3">
-          {isSeller && order.status === "paid" && (
+          {isSeller && order.status === "payment_held" && (
             <button onClick={() => doAction("ship", "Ship")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-sm">
               <Truck className="w-5 h-5" />{actionLoading === "ship" ? "Shipping..." : "Mark as Shipped"}
             </button>
@@ -83,7 +83,7 @@ export default function OrderDetailPage() {
               <CheckCircle className="w-5 h-5" />{actionLoading === "confirm" ? "Confirming..." : "Confirm Delivery"}
             </button>
           )}
-          {isBuyer && (order.status === "paid" || order.status === "shipped") && (
+          {isBuyer && (order.status === "payment_held" || order.status === "shipped") && (
             <button onClick={() => doAction("dispute", "Dispute")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors shadow-sm">
               <AlertTriangle className="w-5 h-5" />{actionLoading === "dispute" ? "Disputing..." : "Raise Dispute"}
             </button>
