@@ -4,7 +4,7 @@ import { requireCsrfToken } from "../lib/csrf.js";
 import { adminActionLimiter } from "../middleware/rateLimiters.js";
 import { validateBody } from "../middleware/validate.js";
 import { roleChangeSchema, tierChangeSchema } from "../validators/admin.schemas.js";
-import { changeUserRole, changeUserTier } from "../services/adminService.js";
+import { changeUserRole, changeUserTier, SelfTargetError } from "../services/adminService.js";
 
 const router = createAuthzRouter();
 
@@ -33,6 +33,9 @@ router.patch(
       }
       return res.status(200).json({ id: subject._id, role: subject.role });
     } catch (err) {
+      if (err instanceof SelfTargetError) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },
@@ -53,6 +56,9 @@ router.patch(
       }
       return res.status(200).json({ id: subject._id, sellerTier: subject.sellerTier });
     } catch (err) {
+      if (err instanceof SelfTargetError) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },

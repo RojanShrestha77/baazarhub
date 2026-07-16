@@ -16,12 +16,33 @@ async function recordChange({ actorId, subjectId, action, before, after }) {
   await AuditLog.create({ actor: actorId, subject: subjectId, action, before, after });
 }
 
+// Post-Phase-2-self-attack fix (Finding 3): an admin could target their
+// own account through these functions and succeed — the role/tier write
+// would land, then revokeAllSessionsForUser would kill the very session
+// making the request. That's not just a footgun: if the target of a
+// self-demotion is the LAST admin account, the change is unrecoverable
+// in-app — nobody with an admin role remains to promote anyone back, and
+// nothing in this codebase (no seed script, no break-glass account) can
+// re-grant it. Blocking self-targeting entirely avoids having to detect
+// "are you the last admin" at write time, which would need a live count
+// query racing against concurrent admin changes to be reliable anyway.
+export class SelfTargetError extends Error {
+  constructor() {
+    super("Admins cannot change their own role or tier through this endpoint");
+    this.code = "SELF_TARGET";
+  }
+}
+
 // Admin-only (route-level requireRole("admin") + requireMfaVerified —
 // src/routes/admin.routes.js). Sellers cannot self-promote: this function
 // is only ever reachable through that route, and a non-admin session can
 // never pass requireRole("admin") to reach it in the first place — there's
 // no separate "except when acting on yourself" carve-out to bypass.
 export async function changeUserRole(actorId, subjectId, newRole) {
+  if (String(actorId) === String(subjectId)) {
+    throw new SelfTargetError();
+  }
+
   const subject = await User.findById(subjectId);
   if (!subject) return null;
 
@@ -41,6 +62,10 @@ export async function changeUserRole(actorId, subjectId, newRole) {
 }
 
 export async function changeUserTier(actorId, subjectId, newTier) {
+  if (String(actorId) === String(subjectId)) {
+    throw new SelfTargetError();
+  }
+
   const subject = await User.findById(subjectId);
   if (!subject) return null;
 

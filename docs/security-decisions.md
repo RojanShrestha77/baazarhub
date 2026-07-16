@@ -111,6 +111,26 @@ is ever removed or its store becomes distributed without a shared budget (see th
 `express-rate-limit`'s in-memory store in `rateLimiters.js` — the same horizontal-scaling gap
 applies here).
 
+## 2026-07-16 — Admin role/tier changes block self-targeting
+
+The Phase 2 self-attack pass found that an admin could `PATCH` their own account through the
+role/tier-change routes. It succeeded — the write landed, then `revokeAllSessionsForUser`
+immediately killed the very session that made the request. That's a bad experience on its own,
+but the real reason this is now blocked outright (`SelfTargetError` in
+`src/services/adminService.js`, returned as a 400) rather than left as a "don't do that" is
+recoverability: if the admin who self-demotes happens to be the *last* admin account, the
+change is unrecoverable from inside the app — there is no seed script, no break-glass account,
+and nobody left holding the admin role to promote anyone back, including that same person.
+
+The alternative — allow self-targeting but block it only when the actor is the last remaining
+admin — was considered and rejected: it needs a live `count({role: "admin"})` query racing
+against concurrent admin role changes to be reliable (two admins simultaneously demoting two
+different other admins could both read "not the last one" and still leave zero), and it still
+permits an admin locking themselves out of their own session on every other self-targeted
+change (tier included, where "last admin" doesn't even apply). Blocking self-targeting
+unconditionally on both routes is simpler and has no legitimate use case it forecloses — an
+admin doesn't need this endpoint to manage their own account.
+
 ## 2026-07-16 — Data export/import is allowlist-scoped and self-only
 
 `GET /api/profiles/me/export` and `POST /api/profiles/me/import`
