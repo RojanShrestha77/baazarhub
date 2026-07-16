@@ -20,6 +20,8 @@ pnpm-debug.log*
 dist/
 build/
 .vite/
+.next/
+next-env.d.ts
 *.tsbuildinfo
 
 # ── Test / Coverage ───────────────────────────────────────────────────────────
