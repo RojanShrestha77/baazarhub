@@ -1,8 +1,18 @@
 import { Request, Response, NextFunction } from "express";
+import { UserModel } from "../models/user.model";
 import { changeUserRole, changeUserTier, SelfTargetError } from "../services/admin.service";
 import { RoleChangeDto, TierChangeDto } from "../validators/admin.schema";
 
 export class AdminController {
+  list = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await UserModel.find({}).select("-passwordHash -passwordHistory -mfaSecret -recoveryCodes").lean();
+      return res.status(200).json(users);
+    } catch (err) {
+      next(err);
+    }
+  };
+
   // :id is re-resolved server-side by the service (findById), never trusted
   // as proof of anything on its own.
   changeRole = async (req: Request, res: Response, next: NextFunction) => {

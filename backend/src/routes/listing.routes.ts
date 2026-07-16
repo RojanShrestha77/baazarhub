@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { createAuthzRouter } from "../lib/authzRouter";
-import { requireSession, requireRole, requireOwnership } from "../middlewares/authz";
+import { PUBLIC, requireSession, requireRole, requireOwnership } from "../middlewares/authz";
 import { requireCsrfToken } from "../lib/csrf";
 import { listingReadLimiter, listingWriteLimiter, searchLimiter, listingImageUploadLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateQuery, validateObjectIdParam } from "../middlewares/validate";
@@ -30,9 +30,9 @@ async function attachListing(req: Request, _res: Response, next: NextFunction) {
 router.post("/", [requireSession, requireRole("seller")], requireCsrfToken, listingWriteLimiter, validateBody(listingCreateSchema), listing.create);
 
 // Search registered BEFORE /:id so "/search" isn't captured as :id.
-router.get("/search", [requireSession], searchLimiter, validateQuery(searchQuerySchema), listing.search);
+router.get("/search", PUBLIC, searchLimiter, validateQuery(searchQuerySchema), listing.search);
 
-router.get("/:id", [requireSession], listingReadLimiter, validateObjectIdParam("id"), listing.read);
+router.get("/:id", PUBLIC, listingReadLimiter, validateObjectIdParam("id"), listing.read);
 
 router.patch(
   "/:id",
@@ -58,6 +58,6 @@ router.post(
   listing.addImages,
 );
 
-router.get("/:id/images/:filename", [requireSession], listingReadLimiter, validateObjectIdParam("id"), listing.serveImage);
+router.get("/:id/images/:filename", PUBLIC, listingReadLimiter, validateObjectIdParam("id"), listing.serveImage);
 
 export default router;

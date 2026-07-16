@@ -21,7 +21,7 @@ export default function AdminPage() {
       try {
         const [users, verifications, logs] = await Promise.all([
           api.get<any[]>("/admin/users").catch(() => []),
-          api.get<any[]>("/admin/verifications").catch(() => []),
+          api.get<any[]>("/verification/requests").catch(() => []),
           api.get<any[]>("/admin/logs?limit=50").catch(() => []),
         ]);
         setData({ users, verifications, logs });
@@ -42,7 +42,7 @@ export default function AdminPage() {
 
   const updateTier = async (userId: string, tier: string) => {
     try {
-      await api.patch(`/admin/users/${userId}/tier`, { tier });
+      await api.patch(`/admin/users/${userId}/tier`, { sellerTier: tier });
       const users = await api.get<any[]>("/admin/users");
       setData({ ...data, users });
     } catch { /* ignore */ }
@@ -50,8 +50,9 @@ export default function AdminPage() {
 
   const updateVerification = async (verificationId: string, status: string) => {
     try {
-      await api.patch(`/admin/verifications/${verificationId}`, { status });
-      const verifications = await api.get<any[]>("/admin/verifications");
+      const endpoint = status === "approved" ? "approve" : "reject";
+      await api.post(`/verification/requests/${verificationId}/${endpoint}`, {});
+      const verifications = await api.get<any[]>("/verification/requests");
       setData({ ...data, verifications });
     } catch { /* ignore */ }
   };
@@ -73,12 +74,12 @@ export default function AdminPage() {
                 <td className="px-4 py-3">{u.email}</td>
                 <td className="px-4 py-3">
                   <select value={u.role} onChange={(e) => updateRole(u.id || u._id, e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                    <option value="user">User</option><option value="seller">Seller</option><option value="admin">Admin</option>
+                    <option value="buyer">Buyer</option><option value="seller">Seller</option><option value="admin">Admin</option>
                   </select>
                 </td>
                 <td className="px-4 py-3">
-                  <select value={u.tier || "none"} onChange={(e) => updateTier(u.id || u._id, e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                    <option value="none">None</option><option value="silver">Silver</option><option value="gold">Gold</option><option value="platinum">Platinum</option>
+                  <select value={u.sellerTier || "unverified"} onChange={(e) => updateTier(u.id || u._id, e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="unverified">Unverified</option><option value="verified">Verified</option><option value="trusted">Trusted</option>
                   </select>
                 </td>
                 <td className="px-4 py-3">{u.mfaEnabled ? <span className="text-green-600 font-medium">Yes</span> : <span className="text-gray-400">No</span>}</td>

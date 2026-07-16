@@ -26,15 +26,16 @@ export default function OrderDetailPage() {
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
-    api.get<Order>(`/orders/${params.id}`).then(setOrder).catch(() => toast.error("Order not found")).finally(() => setLoading(false));
+    api.get<Order>(`/escrow/orders/${params.id}`).then(setOrder).catch(() => toast.error("Order not found")).finally(() => setLoading(false));
   }, [user, router, params.id]);
 
+  const actionMap: Record<string, string> = { ship: "ship", confirm: "confirm-delivery", dispute: "dispute" };
   const doAction = async (action: string, label: string) => {
     setActionLoading(action);
     try {
-      await api.post(`/escrow/${params.id}/${action}`, {});
+      await api.post(`/escrow/orders/${params.id}/${actionMap[action] || action}`, {});
       toast.success(`${label} successful`);
-      const updated = await api.get<Order>(`/orders/${params.id}`);
+      const updated = await api.get<Order>(`/escrow/orders/${params.id}`);
       setOrder(updated);
     } catch (err: unknown) {
       toast.error(err instanceof ApiError ? err.message : `${label} failed`);

@@ -14,6 +14,7 @@ const admin = new AdminController();
 // these routes.
 const ADMIN_MFA = [requireRole("admin"), requireMfaVerified];
 
+router.get("/users", ADMIN_MFA, adminActionLimiter, admin.list);
 router.patch("/users/:id/role", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(roleChangeSchema), admin.changeRole);
 router.patch("/users/:id/tier", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(tierChangeSchema), admin.changeTier);
 

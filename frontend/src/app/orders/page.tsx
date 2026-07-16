@@ -28,7 +28,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
-    api.get<Order[]>("/orders").then(setOrders).catch(() => {}).finally(() => setLoading(false));
+    api.get<Order[]>("/escrow/orders").then(setOrders).catch(() => {}).finally(() => setLoading(false));
   }, [user, router]);
 
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" role="status"><span className="sr-only">Loading...</span></div></div>;
