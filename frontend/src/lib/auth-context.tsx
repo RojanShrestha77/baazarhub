@@ -1,22 +1,39 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { api } from "./api";
-import type { User, AuthContextValue } from "@/types";
+import { useRouter } from "next/navigation";
+import { api, ApiError } from "./api";
+import type { UserProfile } from "@/types";
+
+interface AuthContextValue {
+  user: UserProfile | null;
+  loading: boolean;
+  mfaRequired: boolean;
+  mfaVerified: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  verifyMfa: (code: string) => Promise<void>;
+  verifyRecoveryCode: (code: string) => Promise<void>;
+  fetchUser: () => Promise<void>;
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaVerified, setMfaVerified] = useState(false);
 
   const fetchUser = useCallback(async () => {
     try {
-      const data = await api.get("/auth/me") as User;
+      const data = await api.get<UserProfile>("/profiles/me");
       setUser(data);
+      return data;
     } catch {
       setUser(null);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -24,34 +41,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { fetchUser(); }, [fetchUser]);
 
-  const login = async (email: string, password: string, captchaToken?: string) => {
-    const data = await api.post("/auth/login", { email, password, captchaToken }) as User & { mfaRequired?: boolean };
+  const login = async (email: string, password: string) => {
+    const data = await api.post<{ mfaRequired: boolean }>("/auth/login", { email, password });
     if (data.mfaRequired) {
       setMfaRequired(true);
-      return;
+    } else {
+      await fetchUser();
     }
-    setUser(data);
   };
 
-  const register = async (email: string, password: string, captchaToken?: string) => {
-    const data = await api.post("/auth/register", { email, password, captchaToken }) as User;
-    setUser(data);
+  const register = async (email: string, password: string) => {
+    await api.post<{ message: string }>("/auth/register", { email, password });
   };
 
   const logout = async () => {
     try { await api.post("/auth/logout"); } catch { /* ignore */ }
     setUser(null);
     setMfaRequired(false);
+    setMfaVerified(false);
   };
 
   const verifyMfa = async (code: string) => {
-    const data = await api.post("/auth/mfa/verify", { code }) as User;
-    setUser(data);
+    await api.post<{ mfaVerified: boolean }>("/auth/mfa/verify", { code });
+    setMfaVerified(true);
     setMfaRequired(false);
+    await fetchUser();
+  };
+
+  const verifyRecoveryCode = async (code: string) => {
+    await api.post<{ mfaVerified: boolean }>("/auth/mfa/recovery-code/verify", { code });
+    setMfaVerified(true);
+    setMfaRequired(false);
+    await fetchUser();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, mfaRequired, login, register, logout, verifyMfa, fetchUser }}>
+    <AuthContext.Provider value={{ user, loading, mfaRequired, mfaVerified, login, register, logout, verifyMfa, verifyRecoveryCode, fetchUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -61,4 +86,13 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+export function useRequireAuth(): UserProfile {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    if (!loading && !user) router.push("/login");
+  }, [user, loading, router]);
+  return user!;
 }
