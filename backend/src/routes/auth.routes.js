@@ -1,6 +1,5 @@
-import { Router } from "express";
-
-import { attachSession, requireSession, requireMfaVerified } from "../middleware/session.js";
+import { createAuthzRouter } from "../lib/authzRouter.js";
+import { PUBLIC, requireSession, requireMfaVerified } from "../middleware/authz.js";
 import {
   loginLimiter,
   registerLimiter,
@@ -54,7 +53,7 @@ import {
   invalidateAllResetTokensForUser,
 } from "../services/passwordResetService.js";
 
-const router = Router();
+const router = createAuthzRouter();
 
 const REGISTER_RESPONSE = {
   message: "If this email address is available, your account has been created — you can now log in.",
@@ -66,7 +65,7 @@ const REGISTER_RESPONSE = {
 // notification email instead of a differential HTTP response (sent async
 // — never awaited before responding, so response timing can't correlate
 // with "an email was actually queued").
-router.post("/register", registerLimiter, validateBody(registerSchema), async (req, res, next) => {
+router.post("/register", PUBLIC, registerLimiter, validateBody(registerSchema), async (req, res, next) => {
   try {
     const { email, password } = req.validatedBody;
 
@@ -119,7 +118,7 @@ const LOGIN_FAILURE_RESPONSE = { error: "Invalid email or password" };
 // affects whether an otherwise-correct password is honored, not whether
 // the work happens. Cost: some wasted CPU hashing during an attacker's
 // own backoff window — bounded by loginLimiter's per-IP cap regardless.
-router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, next) => {
+router.post("/login", PUBLIC, loginLimiter, validateBody(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.validatedBody;
     const user = await User.findOne({ email });
@@ -183,8 +182,7 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, 
 // ── Logout (current session only) ──────────────────────────────────────
 router.post(
   "/logout",
-  attachSession,
-  requireSession,
+  [requireSession],
   requireCsrfToken,
   validateBody(logoutSchema),
   async (req, res, next) => {
@@ -199,7 +197,7 @@ router.post(
 );
 
 // ── Logout everywhere ──────────────────────────────────────────────────
-router.post("/logout-all", attachSession, requireSession, requireCsrfToken, async (req, res, next) => {
+router.post("/logout-all", [requireSession], requireCsrfToken, async (req, res, next) => {
   try {
     await revokeAllSessionsForUser(req.user._id);
     clearSessionCookie(res);
@@ -215,7 +213,7 @@ router.post("/logout-all", attachSession, requireSession, requireCsrfToken, asyn
 // (sessionService.js), not just this endpoint. This exists so a client can
 // explicitly confirm current session state (e.g. after being idle) without
 // that being a side effect of some other action.
-router.post("/session/refresh", attachSession, requireSession, requireCsrfToken, (req, res) => {
+router.post("/session/refresh", [requireSession], requireCsrfToken, (req, res) => {
   res.status(200).json({
     mfaVerified: req.session.mfaVerified,
     expiresAt: req.session.expiresAt,
@@ -230,8 +228,7 @@ router.post("/session/refresh", attachSession, requireSession, requireCsrfToken,
 // out with a secret they never actually captured correctly.
 router.post(
   "/mfa/enrol",
-  attachSession,
-  requireSession,
+  [requireSession],
   requireCsrfToken,
   mfaEnrolLimiter,
   validateBody(mfaEnrolSchema),
@@ -261,8 +258,7 @@ router.post(
 // code can't be reused, whether by an attacker or by accident).
 router.post(
   "/mfa/verify",
-  attachSession,
-  requireSession,
+  [requireSession],
   requireCsrfToken,
   mfaVerifyLimiter,
   validateBody(mfaVerifySchema),
@@ -304,8 +300,7 @@ router.post(
 // TOCTOU race tests/auth/recovery-code.test.js checks for, not the read.
 router.post(
   "/mfa/recovery-code/verify",
-  attachSession,
-  requireSession,
+  [requireSession],
   requireCsrfToken,
   recoveryCodeLimiter,
   validateBody(recoveryCodeVerifySchema),
@@ -336,8 +331,7 @@ router.post(
 // with a flag.
 router.post(
   "/password/change",
-  attachSession,
-  requireMfaVerified,
+  [requireMfaVerified],
   requireCsrfToken,
   passwordChangeLimiter,
   validateBody(passwordChangeSchema),
@@ -382,6 +376,7 @@ const RESET_REQUEST_RESPONSE = {
 // queued" — same pattern as registration and login.
 router.post(
   "/password/reset/request",
+  PUBLIC,
   passwordResetLimiter,
   validateBody(passwordResetRequestSchema),
   async (req, res, next) => {
@@ -409,6 +404,7 @@ router.post(
 // sessions anymore"). Separate code path from password/change above.
 router.post(
   "/password/reset/confirm",
+  PUBLIC,
   passwordResetLimiter,
   validateBody(passwordResetConfirmSchema),
   async (req, res, next) => {

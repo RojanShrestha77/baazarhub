@@ -64,10 +64,11 @@ const userSchema = new Schema(
 
     // Seller verification tier (README: "tiered seller verification").
     // Same mass-assignment reasoning as role — only an admin-only code
-    // path (not built in this phase) should ever change this.
+    // path (src/routes/admin.routes.js, Phase 2) can ever change this,
+    // and only for an MFA-verified admin session (src/middleware/authz.js).
     sellerTier: {
       type: String,
-      enum: ["unverified", "basic", "verified", "premium"],
+      enum: ["unverified", "verified", "trusted"],
       default: "unverified",
     },
 

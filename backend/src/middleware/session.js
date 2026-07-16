@@ -9,48 +9,59 @@ import { SESSION_COOKIE_NAME } from "../config/session.js";
 
 export { SESSION_COOKIE_NAME };
 
-// Attach to any route that may optionally have a session (e.g. to vary
-// behaviour without requiring auth). Does not reject unauthenticated
-// requests — see requireSession below for that.
-export async function attachSession(req, res, next) {
+// Core lookup, factored out of attachSession so authz gates (Phase 2,
+// src/middleware/authz.js) can each call it independently without every
+// gate in a composed chain (e.g. [requireSession, requireRole("admin"),
+// requireMfaVerified]) re-hitting the DB. Idempotent per-request via
+// req.__sessionLoaded — safe to call more than once on the same req.
+export async function loadSession(req, res) {
+  if (req.__sessionLoaded) return;
+  req.__sessionLoaded = true;
+
   const token = req.cookies?.[SESSION_COOKIE_NAME];
 
   req.session = null;
   req.user = null;
 
   if (!token) {
-    return next();
+    return;
   }
 
+  // findValidSession (services/sessionService.js) re-checks expiresAt
+  // AND absoluteExpiresAt itself, checks revokedAt, and extends the
+  // sliding window on success — the TTL index is garbage collection,
+  // not enforcement (see models/Session.js). It never distinguishes
+  // "expired" vs "revoked" vs "not found" — all three just come back
+  // null here, so this middleware can't leak that distinction either
+  // (enumeration/reconnaissance parity, decision #7).
+  const session = await findValidSession(token);
+
+  if (!session) {
+    clearSessionCookie(res);
+    return;
+  }
+
+  const user = await User.findById(session.userId);
+  if (!user) {
+    // Session outlived its user (shouldn't happen without a separate
+    // user-deletion path, but fail closed rather than assume).
+    clearSessionCookie(res);
+    return;
+  }
+
+  req.session = session;
+  req.user = user;
+}
+
+// Attach to any route that may optionally have a session (e.g. to vary
+// behaviour without requiring auth). Does not reject unauthenticated
+// requests — see requireSession below for that.
+export async function attachSession(req, res, next) {
   try {
-    // findValidSession (services/sessionService.js) re-checks expiresAt
-    // AND absoluteExpiresAt itself, checks revokedAt, and extends the
-    // sliding window on success — the TTL index is garbage collection,
-    // not enforcement (see models/Session.js). It never distinguishes
-    // "expired" vs "revoked" vs "not found" — all three just come back
-    // null here, so this middleware can't leak that distinction either
-    // (enumeration/reconnaissance parity, decision #7).
-    const session = await findValidSession(token);
-
-    if (!session) {
-      clearSessionCookie(res);
-      return next();
-    }
-
-    const user = await User.findById(session.userId);
-    if (!user) {
-      // Session outlived its user (shouldn't happen without a separate
-      // user-deletion path, but fail closed rather than assume).
-      clearSessionCookie(res);
-      return next();
-    }
-
-    req.session = session;
-    req.user = user;
+    await loadSession(req, res);
   } catch (err) {
     return next(err);
   }
-
   next();
 }
 

@@ -26,6 +26,7 @@ export async function createUser(overrides = {}) {
     email: overrides.email || `user-${Date.now()}-${Math.random()}@example.com`,
     passwordHash,
     role: overrides.role || "buyer",
+    sellerTier: overrides.sellerTier || "unverified",
     mfaEnabled: overrides.mfaEnabled ?? false,
   });
 }

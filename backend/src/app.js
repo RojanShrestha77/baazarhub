@@ -6,6 +6,9 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 
 import authRoutes from "./routes/auth.routes.js";
+import metaRoutes from "./routes/meta.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import profileRoutes from "./routes/profile.routes.js";
 
 // Configured app, exported without connecting to Mongo or calling listen()
 // so tests (supertest) can exercise it directly against whatever DB the
@@ -23,17 +26,15 @@ export function createApp() {
   app.use(express.json());
   app.use(cookieParser());
 
-  // Health check — used by Docker and CI to verify the service is alive
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", service: "bazaarhub-api" });
-  });
+  // meta.routes.js carries /api/health (used by Docker/CI) and / — routed
+  // through createAuthzRouter() like every other route in the app, rather
+  // than left as inline app.get() calls that the authz enumeration test
+  // couldn't see.
+  app.use("/", metaRoutes);
 
   app.use("/api/auth", authRoutes);
-
-  // Placeholder root — replace with your router once you build features
-  app.get("/", (_req, res) => {
-    res.json({ message: "BazaarHub API" });
-  });
+  app.use("/api/admin", adminRoutes);
+  app.use("/api/profiles", profileRoutes);
 
   // Threat model (Information Disclosure): never let a stack trace or raw
   // error message reach the client. Express's default error handler does

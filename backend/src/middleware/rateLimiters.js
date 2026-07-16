@@ -87,3 +87,24 @@ export const passwordChangeLimiter = rateLimit({
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
 });
+
+// Phase 2, Slice 2: role/tier changes revoke the subject's sessions and
+// write an audit entry — not free operations, and not something a
+// compromised-but-MFA'd admin session should be able to hammer unbounded.
+export const adminActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 2, Slice 4: data export is a full-account read; bound it the same
+// way every other sensitive endpoint is bounded.
+export const exportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
