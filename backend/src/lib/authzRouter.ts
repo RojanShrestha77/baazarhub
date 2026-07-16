@@ -25,8 +25,10 @@ function isValidAuthzDeclaration(authz: unknown): authz is AuthzDeclaration {
 }
 
 // The augmented router: same method names as express.Router but with a
-// required authz declaration as the 2nd argument.
-export type AuthzRouter = Router & {
+// required authz declaration as the 2nd argument. Omit the base method
+// signatures first so the override isn't intersected with Express's
+// overloads (which would break contextual typing of inline handlers).
+export type AuthzRouter = Omit<Router, Method> & {
   [M in Method]: (path: string, authz: AuthzDeclaration, ...handlers: RequestHandler[]) => AuthzRouter;
 };
 
