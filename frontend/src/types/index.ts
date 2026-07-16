@@ -1,67 +1,134 @@
-export interface User {
-  _id: string;
+export interface UserProfile {
+  id: string;
+  displayName: string;
+  bio: string;
+  location: string;
+  hasAvatar: boolean;
   email: string;
   role: "buyer" | "seller" | "admin";
-  sellerTier?: "basic" | "verified" | "premium";
+  sellerTier: "unverified" | "verified" | "trusted";
   mfaEnabled: boolean;
-  bio?: string;
-  createdAt?: string;
 }
 
-export interface Listing {
-  _id: string;
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface SerializedListing {
+  id: string;
+  sellerId: string;
   title: string;
   description: string;
-  price: number;
-  condition: "new" | "like_new" | "good" | "fair";
+  priceMinorUnits: number;
+  currency: string;
   category: string;
+  status: "draft" | "active" | "sold" | "withdrawn";
+  quantity: number;
   images: string[];
-  seller: { _id: string; email: string; name?: string };
-  status?: "active" | "sold" | "inactive";
   createdAt: string;
+  updatedAt: string;
 }
 
-export interface CartItem {
-  _id: string;
-  listing: Listing;
-  quantity: number;
+export interface SearchResult {
+  listings: SerializedListing[];
+  total: number;
+  page: number;
+  limit: number;
 }
+
+export interface ResolvedCartItem {
+  listingId: string;
+  title?: string;
+  quantity: number;
+  unitPriceMinorUnits?: number;
+  lineTotalMinorUnits?: number;
+  available: boolean;
+  reason?: string;
+}
+
+export interface Cart {
+  items: ResolvedCartItem[];
+  totalMinorUnits: number;
+}
+
+export type OrderStatus = "created" | "payment_held" | "shipped" | "delivered" | "released" | "disputed" | "refunded";
 
 export interface Order {
   _id: string;
-  listing: { _id: string; title: string; price: number };
-  buyer: { _id: string; email: string };
-  seller: { _id: string; email: string };
-  status: "pending_payment" | "payment_received" | "shipped" | "delivered" | "disputed" | "released" | "refunded";
-  total: number;
-  escrowReleaseDate?: string;
+  buyerId: string;
+  sellerId: string;
+  listingId: string;
+  listingSnapshot: {
+    title: string;
+    priceMinorUnits: number;
+    currency: string;
+  };
+  quantity: number;
+  totalMinorUnits: number;
+  status: OrderStatus;
+  stripePaymentIntentId?: string;
+  holdDurationMs: number;
+  deliveredAt?: string;
+  disputedAt?: string;
+  releasedAt?: string;
+  refundedAt?: string;
+  disputeResolvedBy?: string;
+  disputeResolution?: "released" | "refunded";
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface CheckoutResult {
+  orderId: string;
+  clientSecret: string;
+  totalMinorUnits: number;
+}
+
+export interface VerificationStatus {
+  id?: string;
+  status: "pending" | "approved" | "rejected" | null;
+  documents?: number;
+  rejectionReason?: string;
+  createdAt?: string;
+  reviewedAt?: string;
+  message?: string;
+}
+
+export interface AdminUserAction {
+  id: string;
+  role?: "buyer" | "seller" | "admin";
+  sellerTier?: "unverified" | "verified" | "trusted";
 }
 
 export interface AuditLog {
   _id: string;
-  user: string;
+  actor?: string;
   action: string;
   outcome: "success" | "failure";
+  subject?: string;
   ip?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 }
 
-export interface VerificationRequest {
-  _id: string;
-  user: { _id: string; email: string };
-  documentType: string;
-  status: "pending" | "approved" | "rejected";
-  createdAt: string;
+export interface ExportData {
+  user: {
+    email: string;
+    role: string;
+    sellerTier: string;
+    mfaEnabled: boolean;
+    createdAt: string;
+  };
+  profile: {
+    displayName: string;
+    bio: string;
+    location: string;
+    hasAvatar: boolean;
+  };
 }
 
-export interface AuthContextValue {
-  user: User | null;
-  loading: boolean;
-  mfaRequired: boolean;
-  login: (email: string, password: string, captchaToken?: string) => Promise<void>;
-  register: (email: string, password: string, captchaToken?: string) => Promise<void>;
-  logout: () => Promise<void>;
-  verifyMfa: (code: string) => Promise<void>;
-  fetchUser: () => Promise<void>;
+export function formatPrice(minorUnits: number): string {
+  return (minorUnits / 100).toLocaleString("en-IN", { style: "currency", currency: "NPR" });
 }
