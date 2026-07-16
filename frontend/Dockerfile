@@ -1,26 +1,24 @@
-# ── Stage 1: build the Vite app ───────────────────────────────────────────────
-FROM node:20-alpine AS build
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
-# Vite reads VITE_* vars at build time — pass them as build args if needed
 RUN npm run build
 
-# ── Stage 2: serve with nginx ─────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS runner
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Remove the default nginx config and replace with our own
-RUN rm /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-# Copy the built static files from the build stage
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# nginx drops to the 'nginx' user by itself after binding port 80,
-# but we lock down permissions on the html directory explicitly
-RUN chown -R nginx:nginx /usr/share/nginx/html
+USER nextjs
+EXPOSE 3000
+ENV PORT=3000
 
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]
