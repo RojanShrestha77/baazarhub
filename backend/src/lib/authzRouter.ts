@@ -27,7 +27,9 @@ function isValidAuthzDeclaration(authz: unknown): authz is AuthzDeclaration {
 // The augmented router: same method names as express.Router but with a
 // required authz declaration as the 2nd argument. Omit the base method
 // signatures first so the override isn't intersected with Express's
-// overloads (which would break contextual typing of inline handlers).
+// overloads (which would break contextual typing of inline handlers). The
+// trade-off is that this is no longer structurally an Express Router, so
+// app.ts casts each router back to RequestHandler at its app.use() site.
 export type AuthzRouter = Omit<Router, Method> & {
   [M in Method]: (path: string, authz: AuthzDeclaration, ...handlers: RequestHandler[]) => AuthzRouter;
 };
