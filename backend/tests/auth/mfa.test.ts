@@ -1,9 +1,9 @@
 import request from "supertest";
 import { authenticator } from "otplib";
 
-import { createApp } from "../../src/app.js";
-import { User } from "../../src/models/User.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { UserModel as User } from "../../src/models/user.model";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 

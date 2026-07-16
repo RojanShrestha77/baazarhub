@@ -5,10 +5,10 @@
 // that happens to be the last admin has no in-app recovery path.
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { User } from "../../src/models/User.js";
-import { AuditLog } from "../../src/models/AuditLog.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { UserModel as User } from "../../src/models/user.model";
+import { AuditLogModel as AuditLog } from "../../src/models/audit-log.model";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 

@@ -1,8 +1,8 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { Listing } from "../../src/models/Listing.js";
-import { createUser, createSession, createCategory, createListing } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { ListingModel as Listing } from "../../src/models/listing.model";
+import { createUser, createSession, createCategory, createListing } from "../helpers/fixtures";
 
 const app = createApp();
 

@@ -6,7 +6,7 @@ import {
   encryptTotpSecret,
   decryptTotpSecret,
   verifyAndConsumeTotp,
-} from "../../src/services/totpService.js";
+} from "../../src/services/totp.service";
 
 describe("totpService", () => {
   it("encrypts and decrypts a secret round-trip", () => {

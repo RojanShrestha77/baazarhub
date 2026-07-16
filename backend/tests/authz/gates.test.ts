@@ -2,7 +2,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 
-import { createAuthzRouter } from "../../src/lib/authzRouter.js";
+import { createAuthzRouter } from "../../src/lib/authzRouter";
 import {
   PUBLIC,
   requireSession,
@@ -10,9 +10,9 @@ import {
   requireTier,
   requireOwnership,
   requireMfaVerified,
-} from "../../src/middleware/authz.js";
-import { User } from "../../src/models/User.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+} from "../../src/middlewares/authz";
+import { UserModel as User } from "../../src/models/user.model";
+import { createUser, createSession } from "../helpers/fixtures";
 
 function buildTestApp() {
   const app = express();

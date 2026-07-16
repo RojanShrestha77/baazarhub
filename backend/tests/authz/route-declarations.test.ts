@@ -7,8 +7,8 @@
 //     catches a route added via a bypassed, plain express.Router()/app.get()
 //     call, which check 1 alone can't see (a bypassed route never enters
 //     createAuthzRouter()'s own bookkeeping in the first place).
-import { createApp } from "../../src/app.js";
-import { listAllRegisteredRoutes } from "../../src/lib/authzRouter.js";
+import { createApp } from "../../src/app";
+import { listAllRegisteredRoutes } from "../../src/lib/authzRouter";
 
 function countRawExpressRoutes(app) {
   let count = 0;

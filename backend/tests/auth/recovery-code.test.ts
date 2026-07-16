@@ -1,8 +1,8 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { RecoveryCode } from "../../src/models/RecoveryCode.js";
-import { createUser, createSession, createRecoveryCode } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { RecoveryCodeModel as RecoveryCode } from "../../src/models/recovery-code.model";
+import { createUser, createSession, createRecoveryCode } from "../helpers/fixtures";
 
 // Decision #5: single-use enforcement must be one atomic findOneAndUpdate,
 // not look-up-then-write — a naive implementation lets two concurrent

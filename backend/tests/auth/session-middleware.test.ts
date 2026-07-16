@@ -1,8 +1,8 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { Session } from "../../src/models/Session.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { SessionModel as Session } from "../../src/models/session.model";
+import { createUser, createSession } from "../helpers/fixtures";
 
 // Decision #1: the TTL index is garbage collection, not enforcement — the
 // lookup path must re-check expiry itself and must not trust that an

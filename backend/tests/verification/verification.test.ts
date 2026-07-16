@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 
 import supertest from "supertest";
 import sharp from "sharp";
-import { createApp } from "../../src/app.js";
-import { VerificationRequest } from "../../src/models/VerificationRequest.js";
-import { User } from "../../src/models/User.js";
-import { AuditLog } from "../../src/models/AuditLog.js";
-import { VERIFICATION_UPLOAD_DIR } from "../../src/middleware/verificationUpload.js";
-import { createUser, createSession, createVerificationRequest } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { VerificationRequestModel as VerificationRequest } from "../../src/models/verification-request.model";
+import { UserModel as User } from "../../src/models/user.model";
+import { AuditLogModel as AuditLog } from "../../src/models/audit-log.model";
+import { VERIFICATION_UPLOAD_DIR } from "../../src/middlewares/verification-upload";
+import { createUser, createSession, createVerificationRequest } from "../helpers/fixtures";
 
 let app;
 
@@ -278,7 +278,7 @@ describe("Admin review", () => {
     // The self-approval check in the service is defense-in-depth for cases
     // where a user holds both roles or a future route change.
     // Test it at the service level:
-    const { approveRequest, SelfApprovalError } = await import("../../src/services/verificationService.js");
+    const { approveRequest, SelfApprovalError } = await import("../../src/services/verification.service");
     const req = await createVerificationRequest(adminSeller);
 
     // Use adminSeller as both the request owner and the "admin" trying to approve
@@ -311,8 +311,8 @@ describe("Admin review", () => {
 
 describe("Tier gate enforcement", () => {
   test("listing limit enforced for unverified sellers", async () => {
-    const { createListing } = await import("../helpers/fixtures.js");
-    const { createCategory } = await import("../helpers/fixtures.js");
+    const { createListing } = await import("../helpers/fixtures");
+    const { createCategory } = await import("../helpers/fixtures");
     const seller = await createUser({ role: "seller", sellerTier: "unverified" });
     const session = await createSession(seller);
     const category = await createCategory();
@@ -338,7 +338,7 @@ describe("Tier gate enforcement", () => {
   });
 
   test("escrow hold duration varies by tier", async () => {
-    const { HOLD_DURATION_MS } = await import("../../src/services/escrowService.js");
+    const { HOLD_DURATION_MS } = await import("../../src/services/escrow.service");
     expect(HOLD_DURATION_MS.trusted).toBeLessThan(HOLD_DURATION_MS.verified);
     expect(HOLD_DURATION_MS.verified).toBeLessThan(HOLD_DURATION_MS.unverified);
   });

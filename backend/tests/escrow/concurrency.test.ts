@@ -1,14 +1,14 @@
 import request from "supertest";
-import { createApp } from "../../src/app.js";
-import { Order } from "../../src/models/Order.js";
-import { EscrowEvent } from "../../src/models/EscrowEvent.js";
+import { createApp } from "../../src/app";
+import { OrderModel as Order } from "../../src/models/order.model";
+import { EscrowEventModel as EscrowEvent } from "../../src/models/escrow-event.model";
 import {
   transitionOrder,
   handlePaymentSucceeded,
   tryAutoRelease,
-} from "../../src/services/escrowService.js";
-import { createUser, createSession, createListing } from "../helpers/fixtures.js";
-import * as stripeService from "../../src/services/stripeService.js";
+} from "../../src/services/escrow.service";
+import { createUser, createSession, createListing } from "../helpers/fixtures";
+import * as stripeService from "../../src/services/stripe.service";
 
 let app;
 

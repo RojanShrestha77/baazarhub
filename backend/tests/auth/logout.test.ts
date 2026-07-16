@@ -1,8 +1,7 @@
 import request from "supertest";
-
-import { createApp } from "../../src/app.js";
-import { Session } from "../../src/models/Session.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { SessionModel as Session } from "../../src/models/session.model";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 
@@ -42,11 +41,7 @@ describe("logout-all", () => {
     const { cookies, csrfHeader, session: sessionA } = await createSession(user);
     const { session: sessionB } = await createSession(user);
 
-    const res = await request(app)
-      .post("/api/auth/logout-all")
-      .set("Cookie", cookies)
-      .set(csrfHeader)
-      .send({});
+    const res = await request(app).post("/api/auth/logout-all").set("Cookie", cookies).set(csrfHeader).send({});
     expect(res.status).toBe(204);
 
     const a = await Session.findById(sessionA._id);

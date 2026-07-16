@@ -8,8 +8,8 @@
 // leaving the read limiter tripped for tests that expected a clean 404.
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 

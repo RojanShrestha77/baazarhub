@@ -3,9 +3,9 @@ import path from "node:path";
 import request from "supertest";
 import sharp from "sharp";
 
-import { createApp } from "../../src/app.js";
-import { UPLOAD_DIR } from "../../src/middleware/listingImageUpload.js";
-import { createUser, createSession, createListing } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { UPLOAD_DIR } from "../../src/middlewares/listing-image-upload";
+import { createUser, createSession, createListing } from "../helpers/fixtures";
 
 // Split from tests/images/upload.test.js — separate app instance means a
 // separate listingImageUploadLimiter budget, so this file's own (small

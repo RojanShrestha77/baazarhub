@@ -1,7 +1,7 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { createCategory } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { createCategory } from "../helpers/fixtures";
 
 const app = createApp();
 

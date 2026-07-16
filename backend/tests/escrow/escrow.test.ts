@@ -1,13 +1,13 @@
-﻿import { Order } from "../../src/models/Order.js";
-import { EscrowEvent } from "../../src/models/EscrowEvent.js";
-import { Listing } from "../../src/models/Listing.js";
-import * as escrowService from "../../src/services/escrowService.js";
-import * as stripeService from "../../src/services/stripeService.js";
+﻿import { OrderModel as Order } from "../../src/models/order.model";
+import { EscrowEventModel as EscrowEvent } from "../../src/models/escrow-event.model";
+import { ListingModel as Listing } from "../../src/models/listing.model";
+import * as escrowService from "../../src/services/escrow.service";
+import * as stripeService from "../../src/services/stripe.service";
 import {
   createUser,
   createListing,
   createCategory,
-} from "../helpers/fixtures.js";
+} from "../helpers/fixtures";
 
 const MOCK_PI = { id: "pi_test_mock", client_secret: "pi_test_secret_mock" };
 const LISTING_PRICE = 10000;

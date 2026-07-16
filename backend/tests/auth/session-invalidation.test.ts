@@ -1,12 +1,12 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { Session } from "../../src/models/Session.js";
-import { User } from "../../src/models/User.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
-import { createPasswordResetToken } from "../../src/services/passwordResetService.js";
-import { PasswordResetToken } from "../../src/models/PasswordResetToken.js";
-import { hashSessionToken } from "../../src/lib/sessionToken.js";
+import { createApp } from "../../src/app";
+import { SessionModel as Session } from "../../src/models/session.model";
+import { UserModel as User } from "../../src/models/user.model";
+import { createUser, createSession } from "../helpers/fixtures";
+import { createPasswordResetToken } from "../../src/services/password-reset.service";
+import { PasswordResetTokenModel as PasswordResetToken } from "../../src/models/password-reset-token.model";
+import { hashSessionToken } from "../../src/lib/sessionToken";
 
 // Decision #1 follow-up: two separate code paths, not one function with a
 // flag.

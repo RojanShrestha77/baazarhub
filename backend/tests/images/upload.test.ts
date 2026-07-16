@@ -3,10 +3,10 @@ import path from "node:path";
 import request from "supertest";
 import sharp from "sharp";
 
-import { createApp } from "../../src/app.js";
-import { Listing } from "../../src/models/Listing.js";
-import { UPLOAD_DIR, MAX_IMAGES_PER_LISTING } from "../../src/middleware/listingImageUpload.js";
-import { createUser, createSession, createListing } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { ListingModel as Listing } from "../../src/models/listing.model";
+import { UPLOAD_DIR, MAX_IMAGES_PER_LISTING } from "../../src/middlewares/listing-image-upload";
+import { createUser, createSession, createListing } from "../helpers/fixtures";
 
 // Split from a single combined file (was tests/images/listing-images.test.js)
 // because listingImageUploadLimiter's budget (10/15min, rateLimiters.js) is

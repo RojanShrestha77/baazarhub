@@ -1,10 +1,10 @@
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { AuditLog } from "../../src/models/AuditLog.js";
-import { logEvent, logAuthzFailure } from "../../src/services/auditService.js";
-import { redactString, redactObject } from "../../src/lib/redact.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { AuditLogModel as AuditLog } from "../../src/models/audit-log.model";
+import { logEvent, logAuthzFailure } from "../../src/services/audit.service";
+import { redactString, redactObject } from "../../src/lib/redact";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 

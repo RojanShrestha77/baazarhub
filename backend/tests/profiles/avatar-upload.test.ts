@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import request from "supertest";
 
-import { createApp } from "../../src/app.js";
-import { Profile } from "../../src/models/Profile.js";
-import { UPLOAD_DIR, MAX_AVATAR_BYTES } from "../../src/middleware/avatarUpload.js";
-import { createUser, createSession } from "../helpers/fixtures.js";
+import { createApp } from "../../src/app";
+import { ProfileModel as Profile } from "../../src/models/profile.model";
+import { UPLOAD_DIR, MAX_AVATAR_BYTES } from "../../src/middlewares/avatar-upload";
+import { createUser, createSession } from "../helpers/fixtures";
 
 const app = createApp();
 
