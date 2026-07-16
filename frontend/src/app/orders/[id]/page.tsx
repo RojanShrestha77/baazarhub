@@ -1,70 +1,98 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Shield } from "lucide-react";
-import { api } from "@/lib/api";
+import { Package, Truck, CheckCircle, AlertTriangle, Shield } from "lucide-react";
+import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { Order } from "@/types";
+import { formatPrice } from "@/types";
 import toast from "react-hot-toast";
 
-const statusColor: Record<string, string> = {
-  pending_payment: "bg-yellow-100 text-yellow-800",
-  payment_received: "bg-blue-100 text-blue-800",
-  shipped: "bg-purple-100 text-purple-800",
-  delivered: "bg-green-100 text-green-800",
-  disputed: "bg-red-100 text-red-800",
-  released: "bg-gray-100 text-gray-800",
-  refunded: "bg-orange-100 text-orange-800",
+const statusLabels: Record<string, string> = {
+  pending_payment: "Pending Payment", paid: "Paid", shipped: "Shipped",
+  delivered: "Delivered", disputed: "Disputed", released: "Completed",
+  cancelled: "Cancelled",
 };
 
 export default function OrderDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { user } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get(`/escrow/orders/${params.id}`).then((data) => setOrder(data as Order)).catch(() => {});
-  }, [params.id]);
+    if (!user) { router.push("/login"); return; }
+    api.get<Order>(`/orders/${params.id}`).then(setOrder).catch(() => toast.error("Order not found")).finally(() => setLoading(false));
+  }, [user, router, params.id]);
 
-  if (!order) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" /></div>;
-
-  const updateStatus = async (status: string) => {
-    try { await api.patch(`/escrow/orders/${order._id}/status`, { status }); setOrder({ ...order, status: status as Order["status"] }); toast.success("Order updated"); } catch { toast.error("Failed to update"); }
+  const doAction = async (action: string, label: string) => {
+    setActionLoading(action);
+    try {
+      await api.post(`/escrow/${params.id}/${action}`, {});
+      toast.success(`${label} successful`);
+      const updated = await api.get<Order>(`/orders/${params.id}`);
+      setOrder(updated);
+    } catch (err: unknown) {
+      toast.error(err instanceof ApiError ? err.message : `${label} failed`);
+    } finally {
+      setActionLoading(null);
+    }
   };
+
+  if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" role="status"><span className="sr-only">Loading...</span></div></div>;
+  if (!order) return <div className="min-h-[60vh] flex items-center justify-center text-gray-500">Order not found</div>;
+
+  const isBuyer = user?.id === order.buyerId;
+  const isSeller = user?.id === order.sellerId;
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Order Details</h1>
-          <span className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize ${statusColor[order.status] || "bg-gray-100 text-gray-800"}`}>{order.status.replace("_", " ")}</span>
-        </div>
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mb-6">
-          <h2 className="font-semibold text-gray-900 mb-2">{order.listing.title}</h2>
-          <p className="text-2xl font-bold text-indigo-600 mb-4">${order.total.toFixed(2)}</p>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">{order.listingTitle}</h1>
+            <span className={`text-sm font-medium px-3 py-1.5 rounded-full capitalize ${statusLabels[order.status] ? "bg-indigo-100 text-indigo-800" : "bg-gray-100"}`}>{statusLabels[order.status] || order.status}</span>
+          </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><span className="text-gray-400">Buyer</span><p className="font-medium">{order.buyer.email}</p></div>
-            <div><span className="text-gray-400">Seller</span><p className="font-medium">{order.seller.email}</p></div>
-            <div><span className="text-gray-400">Ordered</span><p className="font-medium">{new Date(order.createdAt).toLocaleDateString()}</p></div>
-            {order.escrowReleaseDate && <div><span className="text-gray-400">Escrow Release</span><p className="font-medium">{new Date(order.escrowReleaseDate).toLocaleDateString()}</p></div>}
+            <div><span className="text-gray-500">Quantity</span><p className="font-medium">{order.quantity}</p></div>
+            <div><span className="text-gray-500">Unit Price</span><p className="font-medium">{formatPrice(order.unitPriceMinorUnits)}</p></div>
+            <div><span className="text-gray-500">Total</span><p className="font-medium text-indigo-600">{formatPrice(order.totalMinorUnits)}</p></div>
+            <div><span className="text-gray-500">Placed</span><p className="font-medium">{new Date(order.createdAt).toLocaleDateString()}</p></div>
           </div>
         </div>
-        <div className="bg-indigo-50 rounded-2xl p-4 mb-6 flex items-start gap-3">
-          <Shield className="w-5 h-5 text-indigo-600 mt-0.5" />
-          <p className="text-sm text-indigo-900">Escrow protection active. Payment released only after delivery confirmation.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {order.status === "payment_received" && (
-            <button onClick={() => updateStatus("shipped")} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Mark as Shipped</button>
+
+        {(order.status === "paid" || order.status === "shipped" || order.status === "delivered") && (
+          <div className="bg-indigo-50 rounded-2xl p-4 mb-6 flex items-start gap-3">
+            <Shield className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-indigo-900">Funds held in escrow. Released when you confirm delivery.</p>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {isSeller && order.status === "paid" && (
+            <button onClick={() => doAction("ship", "Ship")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-sm">
+              <Truck className="w-5 h-5" />{actionLoading === "ship" ? "Shipping..." : "Mark as Shipped"}
+            </button>
           )}
-          {order.status === "shipped" && (
-            <>
-              <button onClick={() => updateStatus("delivered")} className="bg-green-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-green-700 transition-colors">Confirm Delivery</button>
-              <button onClick={() => updateStatus("disputed")} className="bg-red-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-red-700 transition-colors">Open Dispute</button>
-            </>
+          {isBuyer && order.status === "shipped" && (
+            <button onClick={() => doAction("confirm", "Confirm Delivery")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm">
+              <CheckCircle className="w-5 h-5" />{actionLoading === "confirm" ? "Confirming..." : "Confirm Delivery"}
+            </button>
+          )}
+          {isBuyer && (order.status === "paid" || order.status === "shipped") && (
+            <button onClick={() => doAction("dispute", "Dispute")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors shadow-sm">
+              <AlertTriangle className="w-5 h-5" />{actionLoading === "dispute" ? "Disputing..." : "Raise Dispute"}
+            </button>
           )}
           {order.status === "delivered" && (
-            <button onClick={() => updateStatus("disputed")} className="bg-red-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-red-700 transition-colors">Open Dispute</button>
+            <div className="bg-green-50 rounded-2xl p-4 flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <p className="text-sm text-green-800 font-medium">Order completed. Funds released to seller.</p>
+            </div>
           )}
         </div>
       </motion.div>

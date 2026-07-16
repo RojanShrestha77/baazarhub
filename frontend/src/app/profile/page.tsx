@@ -1,76 +1,85 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useEffect, FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { User as UserIcon, Shield, Download, Key, BadgeCheck } from "lucide-react";
+import { User, Save, Download } from "lucide-react";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/api";
+import type { UserProfile } from "@/types";
 import toast from "react-hot-toast";
 
 export default function ProfilePage() {
+  const router = useRouter();
   const { user } = useAuth();
-  const [bio, setBio] = useState("");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const exportData = async () => {
+  useEffect(() => {
+    if (!user) { router.push("/login"); return; }
+    api.get<UserProfile>("/profiles/me").then((p) => { setProfile(p); setName(p.displayName || ""); }).catch(() => {});
+  }, [user, router]);
+
+  const handleSave = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
     try {
-      const data = await api.get("/auth/me");
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = "bazaarhub-data.json"; a.click();
-      URL.revokeObjectURL(url);
-    } catch { toast.error("Export failed"); }
+      const updated = await api.patch<UserProfile>("/profiles/me", { displayName: name });
+      setProfile(updated);
+      toast.success("Profile updated");
+    } catch (err: unknown) {
+      toast.error(err instanceof ApiError ? err.message : "Failed to update");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (!user) return null;
+  const handleExport = async () => {
+    try {
+      const data = await api.get<{ data: string }>("/profiles/me/export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "my-data.json"; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Data exported");
+    } catch {
+      toast.error("Export failed");
+    }
+  };
+
+  if (!profile) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" role="status"><span className="sr-only">Loading...</span></div></div>;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-2xl mx-auto px-4 py-12">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm mb-6">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center">
-              <UserIcon className="w-8 h-8 text-indigo-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{user.email}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="px-3 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded-full capitalize">{user.role}</span>
-                {user.sellerTier && (
-                  <span className="flex items-center gap-1 px-3 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-full">
-                    <BadgeCheck className="w-3 h-3" /> {user.sellerTier}
-                  </span>
-                )}
-              </div>
-            </div>
+        <div className="flex items-center gap-4 mb-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center">
+            <User className="w-8 h-8 text-indigo-600" />
           </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bio</label>
-              <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" placeholder="Tell us about yourself..." />
-            </div>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Profile</h1>
+            <p className="text-gray-500">{profile.email}</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Link href="/mfa/enrol" className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-all group">
-            <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-              <Shield className="w-5 h-5 text-indigo-600" />
-            </div>
-            <div><p className="font-semibold text-gray-900">MFA Settings</p><p className="text-sm text-gray-500">{user.mfaEnabled ? "Enabled" : "Not configured"}</p></div>
-          </Link>
-          <Link href="/password/change" className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-all group">
-            <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-              <Key className="w-5 h-5 text-indigo-600" />
-            </div>
-            <div><p className="font-semibold text-gray-900">Change Password</p><p className="text-sm text-gray-500">Update your password</p></div>
-          </Link>
-          <button onClick={exportData} className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-all group text-left">
-            <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-              <Download className="w-5 h-5 text-indigo-600" />
-            </div>
-            <div><p className="font-semibold text-gray-900">Export Data</p><p className="text-sm text-gray-500">Download your information</p></div>
-          </button>
-        </div>
+        <form onSubmit={handleSave} className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm space-y-5">
+          <div>
+            <label htmlFor="p-name" className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+            <input id="p-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+          </div>
+          <div>
+            <label htmlFor="p-email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input id="p-email" type="email" value={profile.email} disabled className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed" />
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={saving} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm">
+              <Save className="w-4 h-4" />{saving ? "Saving..." : "Save"}
+            </button>
+            <button type="button" onClick={handleExport} className="flex items-center gap-2 border border-gray-300 text-gray-700 px-6 py-2.5 rounded-xl font-semibold hover:bg-gray-50 transition-colors">
+              <Download className="w-4 h-4" />Export Data
+            </button>
+          </div>
+        </form>
       </motion.div>
     </div>
   );
