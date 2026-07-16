@@ -58,7 +58,7 @@ export class ListingController {
   read = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const listing = await ListingModel.findById(req.params.id);
-      if (!listing || !isVisibleTo(listing, req.user!._id)) {
+      if (!listing || !isVisibleTo(listing, req.user?._id)) {
         return res.status(404).json({ error: "Not found" });
       }
       return res.status(200).json(serializeListing(listing));
@@ -107,7 +107,7 @@ export class ListingController {
     try {
       const listing = await ListingModel.findById(req.params.id);
       // The filename must belong to this listing; same draft-visibility rule.
-      if (!listing || !listing.images.includes(req.params.filename) || !isVisibleTo(listing, req.user!._id)) {
+      if (!listing || !listing.images.includes(req.params.filename) || !isVisibleTo(listing, req.user?._id)) {
         return res.status(404).json({ error: "Not found" });
       }
       const filePath = resolveListingImagePath(req.params.filename);

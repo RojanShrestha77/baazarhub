@@ -16,7 +16,7 @@ function ResetContent() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.post("/auth/password/reset", { token: searchParams.get("token"), password });
+      await api.post("/auth/password/reset/confirm", { token: searchParams.get("token"), newPassword: password });
       toast.success("Password reset successfully");
       router.push("/login");
     } catch {
