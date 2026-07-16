@@ -1,1 +1,0 @@
-export default function ReturnsPage() { return <div className="max-w-3xl mx-auto px-4 py-12"><h1 className="text-3xl font-bold mb-6">Returns Policy</h1><p className="text-gray-600">Disputes are handled through our escrow system. Contact support for assistance.</p></div>; }

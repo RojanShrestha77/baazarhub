@@ -1,2 +1,0 @@
-import Link from "next/link";
-export default function UnauthorizedPage() { return <div className="min-h-[60vh] flex items-center justify-center"><div className="text-center"><h1 className="text-3xl font-bold mb-4">Access Denied</h1><p className="text-gray-500 mb-6">You don't have permission to view this page.</p><Link href="/" className="text-indigo-600 hover:underline">Go Home</Link></div></div>; }
