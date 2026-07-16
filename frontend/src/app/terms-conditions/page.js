@@ -1,0 +1,1 @@
+export default function TermsPage() { return <div className="max-w-3xl mx-auto px-4 py-12"><h1 className="text-3xl font-bold mb-6">Terms & Conditions</h1><p className="text-gray-600">By using BazaarHub you agree to our terms. All transactions are protected by escrow.</p></div>; }

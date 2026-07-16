@@ -1,0 +1,1 @@
+export default function HelpPage() { return <div className="max-w-3xl mx-auto px-4 py-12"><h1 className="text-3xl font-bold mb-6">Help Center</h1><p className="text-gray-600">Visit our FAQ or contact support for assistance.</p></div>; }
