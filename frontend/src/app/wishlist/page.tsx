@@ -2,13 +2,21 @@
 
 import { Heart } from "lucide-react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 
 export default function WishlistPage() {
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-      <Heart className="w-16 h-16 text-gray-300" />
-      <p className="text-gray-500 text-lg">Wishlist coming soon</p>
-      <Link href="/marketplace" className="text-indigo-600 font-medium hover:text-indigo-700">Browse marketplace</Link>
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-sm">
+        <div className="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Heart className="w-12 h-12 text-pink-300" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Wishlist</h2>
+        <p className="text-gray-500 mb-8">Save items you love. Wishlists will be available soon.</p>
+        <Link href="/marketplace" className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-sm">
+          Browse Marketplace
+        </Link>
+      </motion.div>
     </div>
   );
 }
