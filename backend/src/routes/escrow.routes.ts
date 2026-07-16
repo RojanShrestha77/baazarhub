@@ -164,10 +164,9 @@ router.post(
       const updated = await resolveDisputeService(req.params.orderId, req.user!._id, body.resolution);
       if (!updated) return res.status(409).json({ error: "Transition failed — state changed" });
       logEvent({ actor: req.user!._id, action: "escrow_resolve_dispute", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: req.params.orderId, resolution: body.resolution } }).catch(() => {});
-      // NOTE (faithful port): compares against "release" but the schema enum
-      // is "released" — so this notification branch never fires the release
-      // path. Preserved as-is; flagged as a finding to fix separately.
-      if ((body.resolution as string) === "release") {
+      // Fix: compare against the actual enum value "released" (was "release",
+      // which never matched and mis-sent a refunded notice on a release).
+      if (body.resolution === "released") {
         sendOrderReleasedNotification(order.sellerId, req.params.orderId);
       } else {
         sendOrderRefundedNotification(order.buyerId, req.params.orderId);
