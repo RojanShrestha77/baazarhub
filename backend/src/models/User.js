@@ -82,6 +82,11 @@ const userSchema = new Schema(
     totpLastUsedStep: { type: Number },
 
     loginFailure: { type: loginFailureSchema, default: () => ({}) },
+
+    // Password history — stores hashes of last N passwords for reuse
+    // prevention. Rotates on every password change (oldest dropped when
+    // length exceeds PASSWORD_HISTORY_LIMIT).
+    passwordHistory: { type: [String], default: [] },
   },
   { timestamps: true },
 );

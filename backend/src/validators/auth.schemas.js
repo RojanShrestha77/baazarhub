@@ -10,9 +10,12 @@ import { z } from "zod";
 const password = z.string().min(12).max(128);
 const email = z.string().trim().toLowerCase().email().max(254);
 
+const captchaField = z.string().optional();
+
 export const registerSchema = z.object({
   email,
   password,
+  captchaToken: captchaField,
 });
 
 // Deliberately NOT validating "does this user exist" here — that's the
@@ -21,6 +24,7 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(1).max(128),
+  captchaToken: captchaField,
 });
 
 // No body expected. .strict() over .passthrough(): neither handler reads
@@ -54,4 +58,13 @@ export const passwordResetRequestSchema = z.object({
 export const passwordResetConfirmSchema = z.object({
   token: z.string().min(1),
   newPassword: password,
+});
+
+export const magicLinkRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  captchaToken: captchaField,
+});
+
+export const magicLinkVerifySchema = z.object({
+  token: z.string().min(1),
 });

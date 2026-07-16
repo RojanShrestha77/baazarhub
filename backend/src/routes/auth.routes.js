@@ -20,14 +20,18 @@ import {
   passwordChangeSchema,
   passwordResetRequestSchema,
   passwordResetConfirmSchema,
+  magicLinkRequestSchema,
+  magicLinkVerifySchema,
 } from "../validators/auth.schemas.js";
 import { User } from "../models/User.js";
-import { hashPassword, verifyPassword, verifyAgainstDummyHash } from "../services/passwordService.js";
+import { logEvent } from "../services/auditService.js";
+import { hashPassword, verifyPassword, verifyAgainstDummyHash, isPasswordReused, addToPasswordHistory, isPasswordExpired } from "../services/passwordService.js";
 import {
   sendRegistrationConfirmation,
   sendExistingAccountNotice,
   sendRecoveryCodeUsedNotice,
   sendPasswordResetEmail,
+  sendMagicLinkEmail,
 } from "../services/mailService.js";
 import {
   createSession,
@@ -52,6 +56,8 @@ import {
   consumePasswordResetToken,
   invalidateAllResetTokensForUser,
 } from "../services/passwordResetService.js";
+import { requireCaptcha } from "../middleware/captcha.js";
+import { createMagicLinkToken, consumeMagicLinkToken } from "../services/magicLinkService.js";
 
 const router = createAuthzRouter();
 
@@ -65,7 +71,7 @@ const REGISTER_RESPONSE = {
 // notification email instead of a differential HTTP response (sent async
 // — never awaited before responding, so response timing can't correlate
 // with "an email was actually queued").
-router.post("/register", PUBLIC, registerLimiter, validateBody(registerSchema), async (req, res, next) => {
+router.post("/register", PUBLIC, registerLimiter, requireCaptcha, validateBody(registerSchema), async (req, res, next) => {
   try {
     const { email, password } = req.validatedBody;
 
@@ -78,14 +84,16 @@ router.post("/register", PUBLIC, registerLimiter, validateBody(registerSchema), 
     const passwordHash = await hashPassword(password);
     const existing = await User.findOne({ email });
 
-    if (existing) {
-      sendExistingAccountNotice(existing.email);
-    } else {
+      if (existing) {
+        sendExistingAccountNotice(existing.email);
+        logEvent({ action: "register_attempt", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent"), metadata: { reason: "email_exists" } }).catch(() => {});
+      } else {
       try {
         // Explicit allow-list, never a req.body spread — role/sellerTier
         // are never client-settable (see models/User.js).
         await User.create({ email, passwordHash });
         sendRegistrationConfirmation(email);
+        logEvent({ action: "register", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       } catch (err) {
         // Two concurrent registrations for the same new email both pass
         // findOne before either insert lands — the loser hits the unique
@@ -118,7 +126,7 @@ const LOGIN_FAILURE_RESPONSE = { error: "Invalid email or password" };
 // affects whether an otherwise-correct password is honored, not whether
 // the work happens. Cost: some wasted CPU hashing during an attacker's
 // own backoff window — bounded by loginLimiter's per-IP cap regardless.
-router.post("/login", PUBLIC, loginLimiter, validateBody(loginSchema), async (req, res, next) => {
+router.post("/login", PUBLIC, loginLimiter, requireCaptcha, validateBody(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.validatedBody;
     const user = await User.findOne({ email });
@@ -151,12 +159,18 @@ router.post("/login", PUBLIC, loginLimiter, validateBody(loginSchema), async (re
           console.error("registerFailedAttempt failed:", err.message);
         });
       }
+      logEvent({ actor: user?._id, action: "login", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(401).json(LOGIN_FAILURE_RESPONSE);
     }
 
-    await resetFailedAttempts(user);
+      await resetFailedAttempts(user);
 
-    // Decision #1 / session-fixation defense: always a brand-new session,
+      // Check password expiry — warn but don't block login
+      if (isPasswordExpired(user)) {
+        logEvent({ actor: user._id, action: "password_expired", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      }
+
+      // Decision #1 / session-fixation defense: always a brand-new session,
     // never reused across the anonymous -> authenticated boundary.
     // mfaVerified starts true only if the account has no MFA enrolled —
     // otherwise the client must complete /mfa/verify before this session
@@ -172,6 +186,8 @@ router.post("/login", PUBLIC, loginLimiter, validateBody(loginSchema), async (re
     // subsequent authenticated mutating request needs to present back as
     // a header (requireCsrfToken, lib/csrf.js).
     setCsrfCookie(res, generateCsrfToken());
+
+    logEvent({ actor: user._id, action: "login", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
 
     return res.status(200).json({ mfaRequired: user.mfaEnabled });
   } catch (err) {
@@ -189,6 +205,7 @@ router.post(
     try {
       await revokeSession(req.session._id);
       clearSessionCookie(res);
+      logEvent({ actor: req.user._id, action: "logout", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(204).end();
     } catch (err) {
       next(err);
@@ -201,6 +218,7 @@ router.post("/logout-all", [requireSession], requireCsrfToken, async (req, res, 
   try {
     await revokeAllSessionsForUser(req.user._id);
     clearSessionCookie(res);
+    logEvent({ actor: req.user._id, action: "logout_all", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
     return res.status(204).end();
   } catch (err) {
     next(err);
@@ -214,6 +232,7 @@ router.post("/logout-all", [requireSession], requireCsrfToken, async (req, res, 
 // explicitly confirm current session state (e.g. after being idle) without
 // that being a side effect of some other action.
 router.post("/session/refresh", [requireSession], requireCsrfToken, (req, res) => {
+  logEvent({ actor: req.user._id, action: "session_refresh", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
   res.status(200).json({
     mfaVerified: req.session.mfaVerified,
     expiresAt: req.session.expiresAt,
@@ -244,6 +263,7 @@ router.post(
       const recoveryCodes = await generateRecoveryCodes(user._id);
       const otpauthUri = buildOtpAuthUri(secret, user.email);
 
+      logEvent({ actor: user._id, action: "mfa_enrol", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ otpauthUri, secret, recoveryCodes });
     } catch (err) {
       next(err);
@@ -273,6 +293,7 @@ router.post(
       const step = verifyAndConsumeTotp(secret, req.validatedBody.code, user.totpLastUsedStep);
 
       if (step === null) {
+        logEvent({ actor: req.user._id, action: "mfa_verify", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
         return res.status(401).json({ error: "Invalid or expired code" });
       }
 
@@ -284,6 +305,7 @@ router.post(
 
       await markMfaVerified(req.session._id);
 
+      logEvent({ actor: user._id, action: "mfa_verify", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ mfaVerified: true });
     } catch (err) {
       next(err);
@@ -314,6 +336,7 @@ router.post(
       await markMfaVerified(req.session._id);
       sendRecoveryCodeUsedNotice(req.user.email);
 
+      logEvent({ actor: req.user._id, action: "recovery_code_use", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ mfaVerified: true });
     } catch (err) {
       next(err);
@@ -345,18 +368,20 @@ router.post(
         return res.status(401).json({ error: "Current password is incorrect" });
       }
 
-      user.passwordHash = await hashPassword(newPassword);
+      if (await isPasswordReused(user, newPassword)) {
+        return res.status(400).json({ error: "Password has been used recently. Choose a different one." });
+      }
+
+      const newHash = await hashPassword(newPassword);
+      await addToPasswordHistory(user, user.passwordHash);
+      user.passwordHash = newHash;
       user.passwordChangedAt = new Date();
       await user.save();
 
       await revokeOtherSessionsForUser(user._id, req.session._id);
-      // A password change via this path must retire any outstanding
-      // reset token too — otherwise an earlier, still-valid reset link
-      // (self-requested and abandoned, or intercepted by an attacker)
-      // can still reset the account later even though the password was
-      // already changed through a different path.
       await invalidateAllResetTokensForUser(user._id);
 
+      logEvent({ actor: user._id, action: "password_change", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ message: "Password changed" });
     } catch (err) {
       next(err);
@@ -387,6 +412,9 @@ router.post(
       if (user) {
         const rawToken = await createPasswordResetToken(user._id);
         sendPasswordResetEmail(user.email, rawToken);
+        logEvent({ actor: user._id, action: "password_reset_request", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      } else {
+        logEvent({ action: "password_reset_request", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent"), metadata: { reason: "email_not_found" } }).catch(() => {});
       }
 
       return res.status(200).json(RESET_REQUEST_RESPONSE);
@@ -421,17 +449,87 @@ router.post(
         return res.status(400).json({ error: "Invalid or expired reset token" });
       }
 
-      user.passwordHash = await hashPassword(newPassword);
+      if (await isPasswordReused(user, newPassword)) {
+        return res.status(400).json({ error: "Password has been used recently. Choose a different one." });
+      }
+
+      const newHash = await hashPassword(newPassword);
+      await addToPasswordHistory(user, user.passwordHash);
+      user.passwordHash = newHash;
       user.passwordChangedAt = new Date();
       await user.save();
 
       await revokeAllSessionsForUser(user._id);
-      // consumePasswordResetToken only marked THIS token used — a second
-      // outstanding token from an earlier reset request for the same
-      // account must not still be usable after this one succeeded.
       await invalidateAllResetTokensForUser(user._id);
 
+      logEvent({ actor: user._id, action: "password_reset_confirm", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ message: "Password reset" });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── Magic link (password-less auth) ──────────────────────────────────────
+// Decision #7 parity: identical response regardless of email existence.
+router.post(
+  "/magic-link/request",
+  PUBLIC,
+  requireCaptcha,
+  validateBody(magicLinkRequestSchema),
+  async (req, res, next) => {
+    try {
+      const { email } = req.validatedBody;
+      const user = await User.findOne({ email });
+
+      if (user) {
+        const rawToken = await createMagicLinkToken(user._id);
+        sendMagicLinkEmail(user.email, rawToken);
+        logEvent({ actor: user._id, action: "magic_link_request", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      } else {
+        logEvent({ action: "magic_link_request", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent"), metadata: { reason: "email_not_found" } }).catch(() => {});
+      }
+
+      return res.status(200).json({
+        message: "If that email address has an account, a sign-in link has been sent.",
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/magic-link/verify",
+  PUBLIC,
+  validateBody(magicLinkVerifySchema),
+  async (req, res, next) => {
+    try {
+      const { token } = req.validatedBody;
+      const consumed = await consumeMagicLinkToken(token);
+
+      if (!consumed) {
+        return res.status(400).json({ error: "Invalid or expired link" });
+      }
+
+      const user = await User.findById(consumed.userId);
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired link" });
+      }
+
+      const { rawToken: sessionToken } = await createSession({
+        userId: user._id,
+        mfaVerified: !user.mfaEnabled,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+      setSessionCookie(res, sessionToken);
+      setCsrfCookie(res, generateCsrfToken());
+
+      await invalidateAllResetTokensForUser(user._id);
+
+      logEvent({ actor: user._id, action: "magic_link_verify", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      return res.status(200).json({ mfaRequired: user.mfaEnabled });
     } catch (err) {
       next(err);
     }

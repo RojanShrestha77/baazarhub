@@ -1,19 +1,9 @@
 import { User } from "../models/User.js";
-import { AuditLog } from "../models/AuditLog.js";
+import { logEvent } from "./auditService.js";
 import { revokeAllSessionsForUser } from "./sessionService.js";
 
-// No multi-document transaction here: this project runs against a
-// standalone mongod in dev/test (mongodb-memory-server, tests/setup.js),
-// and standalone mongod doesn't support multi-doc transactions (replica
-// set only). Ordering is chosen deliberately instead: write the subject's
-// new value first, then revoke sessions, then write the audit entry last —
-// if the audit write fails, that surfaces as a 500 rather than silently
-// dropping the record, and a change that lands but fails to revoke
-// sessions is worse than one that lands but fails to log, so sessions are
-// revoked before the audit write, not after.
-
 async function recordChange({ actorId, subjectId, action, before, after }) {
-  await AuditLog.create({ actor: actorId, subject: subjectId, action, before, after });
+  await logEvent({ actor: actorId, subject: subjectId, action, outcome: "success", before, after });
 }
 
 // Post-Phase-2-self-attack fix (Finding 3): an admin could target their

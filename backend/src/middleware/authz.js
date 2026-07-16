@@ -35,12 +35,20 @@ export const requireSession = gate("requireSession", _requireSession);
 
 export const requireMfaVerified = gate("requireMfaVerified", _requireMfaVerified);
 
+async function logAuthzFail(req, detail) {
+  try {
+    const { logAuthzFailure } = await import("../services/auditService.js");
+    logAuthzFailure({ actor: req.user?._id, action: detail, ip: req.ip, userAgent: req.get("user-agent"), metadata: { url: req.originalUrl, method: req.method } });
+  } catch {}
+}
+
 export function requireRole(...roles) {
   return gate(`requireRole(${roles.join(",")})`, (req, res, next) => {
     if (!req.session) {
       return res.status(401).json({ error: "Authentication required" });
     }
     if (!roles.includes(req.user.role)) {
+      logAuthzFail(req, `required_role_${roles.join("_")}`);
       return res.status(403).json({ error: "Forbidden" });
     }
     next();
@@ -61,9 +69,11 @@ export function requireTier(minTier) {
       return res.status(401).json({ error: "Authentication required" });
     }
     if (req.user.role !== "seller") {
+      logAuthzFail(req, `required_tier_${minTier}_not_seller`);
       return res.status(403).json({ error: "Forbidden" });
     }
     if (TIER_RANK[req.user.sellerTier] < TIER_RANK[minTier]) {
+      logAuthzFail(req, `required_tier_${minTier}_has_${req.user.sellerTier}`);
       return res.status(403).json({ error: "Forbidden" });
     }
     next();

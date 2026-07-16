@@ -67,8 +67,16 @@ export async function attachSession(req, res, next) {
 
 // Route guard: rejects the request if attachSession didn't find a valid
 // session. Mount attachSession first, then this, on any protected route.
+async function logAuthzFail(req, detail) {
+  try {
+    const { logAuthzFailure } = await import("../services/auditService.js");
+    logAuthzFailure({ actor: req.user?._id, action: detail, ip: req.ip, userAgent: req.get("user-agent"), metadata: { url: req.originalUrl, method: req.method } });
+  } catch {}
+}
+
 export function requireSession(req, res, next) {
   if (!req.session) {
+    logAuthzFail(req, "require_session");
     return res.status(401).json({ error: "Authentication required" });
   }
   next();
@@ -80,9 +88,11 @@ export function requireSession(req, res, next) {
 // decide which routes need this vs requireSession alone.
 export function requireMfaVerified(req, res, next) {
   if (!req.session) {
+    logAuthzFail(req, "require_mfa_no_session");
     return res.status(401).json({ error: "Authentication required" });
   }
   if (!req.session.mfaVerified) {
+    logAuthzFail(req, "require_mfa_not_verified");
     return res.status(403).json({ error: "MFA verification required" });
   }
   next();

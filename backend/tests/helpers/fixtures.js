@@ -1,10 +1,12 @@
 import { User } from "../../src/models/User.js";
 import { Session } from "../../src/models/Session.js";
 import { RecoveryCode } from "../../src/models/RecoveryCode.js";
+import { Category } from "../../src/models/Category.js";
 import { generateSessionToken, hashSessionToken } from "../../src/lib/sessionToken.js";
 import { SESSION_COOKIE_NAME } from "../../src/middleware/session.js";
 import { hashPassword } from "../../src/services/passwordService.js";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generateCsrfToken } from "../../src/lib/csrf.js";
+import { createListing as createListingService } from "../../src/services/listingService.js";
 
 // Test fixtures only — this is scaffolding to exercise the routes/models,
 // not a stand-in for the auth logic itself. Uses hashPassword() (the real
@@ -74,4 +76,87 @@ export async function createRecoveryCode(user) {
     codeHash,
   });
   return { plaintext, doc };
+}
+
+export async function createCategory(overrides = {}) {
+  const unique = `${Date.now()}-${Math.random()}`;
+  return Category.create({
+    name: overrides.name || `Category ${unique}`,
+    slug: overrides.slug || `category-${unique}`,
+  });
+}
+
+// Goes through the real service layer (listingService.createListing), not
+// a raw Listing.create() — so fixture-created listings are subject to the
+// same tier-limit/category-validation rules production traffic is,
+// exactly the discipline the fixtures.js header comment above already
+// established for password hashing. `overrides.status` bypasses the
+// transition table directly (fixtures are allowed to set up state
+// production code path can't reach in one step — e.g. an already-"active"
+// listing for a cart test — the same way createSession bypasses
+// sessionService.createSession to construct pre-aged/revoked sessions).
+export async function createListing(seller, overrides = {}) {
+  const category = overrides.category || (await createCategory())._id;
+  const listing = await createListingService(seller, {
+    title: overrides.title || "Test listing",
+    description: overrides.description,
+    priceMinorUnits: overrides.priceMinorUnits ?? 10000,
+    category,
+    quantity: overrides.quantity,
+  });
+  if (overrides.status && overrides.status !== listing.status) {
+    listing.status = overrides.status;
+    await listing.save();
+  }
+  return listing;
+}
+
+// Phase 4: creates an Order doc in the given state for testing.
+// Skips Stripe and the service layer — tests that need a specific order
+// state (e.g. "shipped" for confirm-delivery tests) create it directly
+// so they don't need to walk the whole checkout->payment->ship path.
+// `overrides.status` defaults to "created".
+export async function createOrder(buyer, seller, listing, overrides = {}) {
+  const { Order } = await import("../../src/models/Order.js");
+  const { HOLD_DURATION_MS } = await import("../../src/services/escrowService.js");
+
+  const quantity = overrides.quantity || 1;
+  const totalMinorUnits = (overrides.priceMinorUnits ?? listing.priceMinorUnits) * quantity;
+
+  const order = await Order.create({
+    buyerId: buyer._id,
+    sellerId: seller._id,
+    listingId: listing._id,
+    listingSnapshot: {
+      title: listing.title,
+      priceMinorUnits: listing.priceMinorUnits,
+      currency: listing.currency || "NPR",
+    },
+    quantity,
+    totalMinorUnits,
+    holdDurationMs: HOLD_DURATION_MS[seller.sellerTier || "unverified"],
+    stripePaymentIntentId: overrides.stripePaymentIntentId || `pi_test_${Date.now()}`,
+    status: overrides.status || "created",
+    deliveredAt: overrides.deliveredAt,
+    disputedAt: overrides.disputedAt,
+  });
+  return order;
+}
+
+// Phase 5: creates a VerificationRequest doc in the given state for testing.
+// Skips the upload flow — tests that need a specific state (e.g. "pending"
+// for approve/reject tests) create it directly.
+export async function createVerificationRequest(seller, overrides = {}) {
+  const { VerificationRequest } = await import("../../src/models/VerificationRequest.js");
+
+  return VerificationRequest.create({
+    sellerId: seller._id,
+    documents: overrides.documents || [
+      { filename: `test-doc-${Date.now()}.pdf`, originalName: "id.pdf", mime: "application/pdf", size: 1024 },
+    ],
+    status: overrides.status || "pending",
+    reviewedBy: overrides.reviewedBy,
+    reviewedAt: overrides.reviewedAt,
+    rejectionReason: overrides.rejectionReason,
+  });
 }

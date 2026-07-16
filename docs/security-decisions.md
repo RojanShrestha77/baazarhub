@@ -143,3 +143,208 @@ meant to leave the server. Import reuses the exact same `.strict()` `profileUpda
 the regular profile-update route — not a separate, looser "import" schema — so it's provably
 impossible to write role/tier/verification state through this path; it's the same
 allowlist-enforcing code, re-entered from a different route.
+
+## 2026-07-16 — Prices are integer minor units, never floats
+
+`Listing.priceMinorUnits` (`backend/src/models/Listing.js`) stores price as an integer count
+of paisa (1/100 NPR), not a decimal/float rupee amount. Binary floating point can't exactly
+represent most decimal fractions — the textbook `0.1 + 0.2 !== 0.3` — and that error compounds
+across repeated price math (cart totals across multiple items, future discounts/tax). This is a
+correctness decision as much as a security one: a marketplace where the same cart can total to
+two different values depending on operation order or accumulated rounding is a real
+business-logic and trust problem, not just an aesthetic one. Every price field and every price
+computation in this codebase (Listing, and Cart's live re-resolution in Slice 4) works in
+integer minor units end to end; conversion to a display rupee amount happens only at the
+frontend's render boundary, never in stored data or in the arithmetic path.
+
+## 2026-07-16 — Search: `$text`, not `RegExp`, and query-param validation blocks operator injection
+
+Two independent, unrelated injection classes live in the same endpoint (`GET /api/listings/
+search`) and needed two independent defenses:
+
+**ReDoS via a user-controlled regex.** If free-text search were implemented as `new RegExp(userInput)` against `title`/`description`, an attacker fully controls the compiled pattern —
+a catastrophic-backtracking payload (`(a+)+$`-shaped) against a similarly-shaped stored string
+can take exponential time and hang a query thread. The fix isn't "sanitize/escape the regex" —
+it's "there is no regex": `q` is matched via Mongo's `$text` operator against a text index on
+`title`+`description` (`Listing.js`'s `.index({ title: "text", description: "text" })`).
+`$text` tokenizes and stems the search string; it never compiles user input as a pattern, so
+this class of attack doesn't apply to this field at all. `tests/search/injection.test.js` sends
+a 40-character repeated-character-plus-terminator payload (the canonical trigger shape for a
+vulnerable naive backtracking regex) as `q` and asserts the response completes in under 1
+second — proving flat response time, not just "didn't crash."
+
+**NoSQL operator injection via query params.** Express's query parser (`qs`) turns
+`?category[$gt]=` into `req.query.category = {"$gt": ""}` — an object, not the string the code
+expects. If that object reached a Mongo filter unvalidated (`Listing.find({ category:
+req.query.category })`), the attacker would control a Mongo query operator directly. The fix:
+`validateQuery(searchQuerySchema)` (new middleware in `src/middleware/validate.js`, mirroring
+`validateBody`) runs every query param through a zod schema where every field is a plain
+`z.string()`/`z.coerce.number()` type — an object input fails `safeParse` cleanly (string
+types don't match; number coercion on an object produces `NaN`, which then fails `.int()`) —
+so the injection payload never survives past the validation middleware, let alone reaches
+`listingService.searchListings`, which additionally builds its Mongo filter field-by-field from
+`req.validatedQuery` rather than ever spreading the query object. Tested explicitly against
+every search param (`q`, `category`, `minPrice`, `maxPrice`, `page`, `limit`) individually —
+all reject with 400.
+
+Pagination `limit` is capped at 50 in the zod schema (`.max(50)`) — a request for a larger page
+size is rejected outright, not silently clamped, so the cap is visible to the client rather than
+a surprise truncation; `searchListings` also clamps again server-side as defense in depth,
+matching the two-layer validation pattern used everywhere else in this codebase.
+
+## 2026-07-16 — Listing photos are re-encoded to strip EXIF/GPS
+
+`src/middleware/listingImageUpload.js` pipes every uploaded listing image through `sharp`
+before writing it to disk — `.rotate()` (auto-orient using the EXIF orientation tag, since
+that information is about to be discarded) then `.resize()` (caps dimensions, incidental
+defense against decompression-bomb-style huge images) then re-encode to the sniffed format.
+Sharp strips all metadata (EXIF/IPTC/XMP) by default unless `.withMetadata()` is called, which
+it never is here — the stored file is the re-encoded output, not the raw upload.
+
+This is a domain-specific privacy control, not a generic "images might carry metadata"
+footnote: seller photos taken on a phone commonly embed GPS coordinates in EXIF, and BazaarHub
+is a marketplace where buyer and seller arrange in-person pickup. A listing photo silently
+leaking the seller's home address (or wherever the photo was taken) is a real physical-safety
+concern specific to this kind of app, not a hypothetical. `tests/images/upload.test.js` embeds
+real GPS EXIF into a test JPEG via `sharp`'s own `withMetadata`, uploads it, and asserts the
+stored file's `sharp(...).metadata().exif` is `undefined`.
+
+Re-encoding also serves as a second content check beyond magic-byte sniffing: `sharp` throws on
+bytes that pass `file-type`'s signature check but don't actually decode as that format, so a
+crafted file that merely starts with valid magic bytes but is malformed/polyglot past that point
+fails here rather than being written to disk as-is.
+
+## 2026-07-16 — XSS defense: React escaping is primary, CSP is defense-in-depth
+
+Two independent layers, and it matters which one is actually load-bearing.
+
+**Primary defense: React's default JSX escaping.** Listing title/description are fully
+attacker-controlled — any seller can set them to anything via the API directly, bypassing
+whatever a frontend form validates. `ListingDetail.jsx` renders both as plain `{title}`/
+`{description}` JSX children — never `dangerouslySetInnerHTML`, no markdown/rich-text renderer,
+no `href`/`src` attribute built from listing content. That's what actually stops stored XSS: a
+payload like `<img src=x onerror=alert(1)>` in a title becomes literal text on the page, not a
+DOM element, because React escapes text children by construction. `ListingDetail.test.jsx`
+proves this against a mocked API response carrying both an `<img onerror>` and a `<script>`
+payload — asserts the raw string renders as visible text, that zero `<script>` elements exist
+in the resulting DOM, and that no `onerror` attribute exists on any real `<img>` element.
+Grepped the whole frontend for `dangerouslySetInnerHTML` and `href={`: zero matches.
+
+**Defense-in-depth: Content-Security-Policy.** Set in `frontend/nginx.conf` (`add_header
+Content-Security-Policy ... always` on the server block that serves the actual HTML/JS a
+browser executes) and mirrored via an explicit `helmet({ contentSecurityPolicy: { directives:
+{...} } })` override in `backend/src/app.js` for the API's own JSON responses (a browser never
+renders JSON as HTML, so the backend's copy of this header doesn't protect the app page itself
+— nginx's does; the backend copy exists so there's one policy declared twice in the same shape
+rather than one real policy and an undeclared gap). Policy: `default-src 'self'; script-src
+'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';
+frame-ancestors 'none'; base-uri 'self'; object-src 'none'`.
+
+**What it blocks**: any `<script>` tag or event-handler attribute containing inline JavaScript
+(no `'unsafe-inline'` in `script-src`) — so even if a future bug *did* let a payload reach the
+DOM as real markup, an inline `<script>` or `onerror="..."` attribute still wouldn't execute;
+`javascript:` URLs (not a valid `script-src` source); loading any script, stylesheet-triggered
+resource, or fetch/XHR target from a different origin; the page being framed by another origin
+(`frame-ancestors 'none'`); a page-injected `<base>` tag hijacking relative URLs (`base-uri
+'self'`); and any `<object>`/`<embed>` plugin content (`object-src 'none'`).
+
+**What it does NOT block**: the actual stored-XSS scenario tested above doesn't reach CSP at
+all — React never creates the `<script>`/`onerror` markup in the first place, so there's
+nothing for CSP to intercept. If application code ever did call
+`dangerouslySetInnerHTML`/`eval`/`new Function()` with attacker content using only same-origin
+script (no external URL, no inline `<script>` tag — e.g. constructing a DOM event handler via
+JS rather than an HTML attribute), `script-src 'self'` alone would not stop it, since the
+executing code is still "from" the app's own origin. CSP also doesn't defend against a
+same-origin issue like an open redirect or DOM-based XSS driven entirely by first-party code —
+it constrains *where* resources load from and *whether* inline/eval-style execution is allowed,
+not *what* first-party code is allowed to do. `style-src 'unsafe-inline'` is a real, deliberate
+gap (React's inline `style={{}}` prop needs it, and no CSS-injection-to-JS-execution path exists
+in current browsers to make this a meaningful escalation on its own) — worth tightening to a
+nonce-based approach if a future phase adds user-controlled styling.
+
+## 2026-07-16 — Draft listings were visible to any authenticated user (self-attack finding, fixed)
+
+Found by attacking the Phase 3 endpoints directly, not by design review: `GET /api/listings/:id`
+had no status check at all — any authenticated user who knew or guessed a listing's id could
+read another seller's unpublished `draft` title/description/price, before the seller ever chose
+to publish it. The route was written as "public-to-any-authenticated-user, same as profiles"
+without separately considering that, unlike a profile, a listing has a pre-publication state
+that's meant to be private to its owner.
+
+Fixed in `src/routes/listing.routes.js`: both `GET /:id` and `GET /:id/images/:filename` now
+check `listing.status !== "draft" || listing belongs to the requester` before returning
+anything, and return the same 404 a nonexistent id gets — not a 403 — so a stranger probing
+draft ids can't distinguish "doesn't exist" from "exists but is a draft I can't see." Active,
+sold, and withdrawn listings remain visible to anyone, matching the original intent; only the
+pre-publication `draft` state is now actually private. `tests/listings/listings.test.js`
+covers all three cases: stranger blocked, owner still sees their own draft, active listing
+stays public.
+
+## 2026-07-16 — Phase 4: Escrow state machine
+
+### State machine is data-driven, not scattered if-statements
+
+`src/services/escrowService.js` declares the full TRANSITIONS table as data:
+`{ from, to, whoCanTrigger[], guards[] }`. Every transition goes through
+`transitionOrder()` which looks up the table, checks whoCanTrigger, runs guards, then
+does atomic `findOneAndUpdate({ _id, status: fromStatus }, { $set: { status: toStatus } })`.
+Null return = "someone else won the race" — same TOCTOU-eliminating idiom as
+recoveryCodeService. Illegal transitions are audit-logged as security events
+(EscrowEvent with metadata.illegal), not just 400 errors.
+
+### Atomic updates eliminate TOCTOU on every state transition
+
+`findOneAndUpdate` with current status in match condition. Never findById + save().
+Concurrency tests (tests/escrow/concurrency.test.js) use Promise.all pairs — two
+simultaneous release requests, release vs dispute, double refund, webhook replay —
+assert exactly one succeeds in each pair.
+
+### Stripe: manual-capture PaymentIntent, no platform funds
+
+`stripeService.js` wraps Stripe test-mode with capture_method: "manual". Auth
+(payment_intent.succeeded) -> payment_held. Capture only on released. Cancel only on
+refunded. SDK version pinned ^17.0.0.
+
+### Webhook raw body ordering
+
+app.js mounts webhook with `express.raw({type:"application/json"})` before global
+express.json() — preserves Buffer for stripe.webhooks.constructEvent. Missing/invalid
+signature returns 400 before any business logic.
+
+### Webhook idempotency via atomic state match
+
+handlePaymentSucceeded calls transitionOrder matching on status:"created". After first
+success, order is in payment_held, second findOneAndUpdate returns null. No separate
+dedup table needed.
+
+### Seller cannot trigger release — enforced at transition-table level
+
+No TRANSITIONS entry where whoCanTrigger includes "seller" and to is "released".
+tests/escrow/escrow.test.js includes explicit "Seller cannot trigger release" test.
+
+### Auto-release: lazy check on read, not scheduled job
+
+getOrder/listOrders checks if delivered-order hold window expired, atomically
+transitions to released. No scheduler, no double-fire risk. Hold duration by seller
+tier: trusted=3d, verified=7d, unverified=14d.
+
+### Escrow audit trail: separate EscrowEvent collection
+
+AuditLog requires User actor/subject refs. EscrowEvent has orderId, fromStatus,
+toStatus, triggeredBy (nullable), triggerType (buyer/seller/admin/system/webhook),
+reason, metadata (Mixed — stores Stripe event IDs). Every transition writes a row.
+
+### Dispute freezes auto-release structurally
+
+Auto-release only runs on orders in "delivered". Dispute transitions to "disputed"
+(removes from delivered path). Admin resolves to refunded or released.
+
+### Rollback on failed payment capture
+
+If stripeService.createPaymentIntent throws, inventory decrement is rolled back via
+$inc: { quantity: +quantity } on Listing. Order never created.
+
+### Admin MFA required for dispute resolution
+
+resolve-dispute and release routes both require
+[requireSession, requireRole("admin"), requireMfaVerified] — matching Phase 2 pattern.

@@ -26,3 +26,30 @@ export async function verifyAgainstDummyHash(plaintext) {
   // argon2id wall-clock/CPU cost as a real verification.
   await argon2.verify(DUMMY_HASH, plaintext).catch(() => false);
 }
+
+const PASSWORD_HISTORY_LIMIT = 5;
+const PASSWORD_EXPIRY_DAYS = 90;
+
+export async function isPasswordReused(user, newPassword) {
+  for (const hash of user.passwordHistory || []) {
+    if (await argon2.verify(hash, newPassword).catch(() => false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function addToPasswordHistory(user, passwordHash) {
+  const history = user.passwordHistory || [];
+  history.push(passwordHash);
+  if (history.length > PASSWORD_HISTORY_LIMIT) {
+    history.shift();
+  }
+  user.passwordHistory = history;
+}
+
+export function isPasswordExpired(user) {
+  if (!user.passwordChangedAt) return false;
+  const elapsed = Date.now() - user.passwordChangedAt.getTime();
+  return elapsed > PASSWORD_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+}

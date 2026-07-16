@@ -23,13 +23,18 @@ import rateLimit from "express-rate-limit";
 // yet. That's a deliberate scope cut for this pass, not an oversight to
 // forget about.
 
+const ALLOWED_IPS = (process.env.IP_ALLOW_LIST || "").split(",").filter(Boolean).map((s) => s.trim());
+
 const jsonRateLimitHandler = (_req, res) => {
   res.status(429).json({ error: "Too many requests" });
 };
 
+const skip = (req) => ALLOWED_IPS.includes(req.ip) || ALLOWED_IPS.includes(req.headers["x-forwarded-for"]);
+
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -38,6 +43,7 @@ export const loginLimiter = rateLimit({
 export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -51,6 +57,7 @@ export const registerLimiter = rateLimit({
 export const mfaEnrolLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -59,6 +66,7 @@ export const mfaEnrolLimiter = rateLimit({
 export const mfaVerifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -75,6 +83,7 @@ export const recoveryCodeLimiter = rateLimit({
 export const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -83,6 +92,7 @@ export const passwordResetLimiter = rateLimit({
 export const passwordChangeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skip,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
@@ -146,6 +156,124 @@ export const profileWriteLimiter = rateLimit({
 export const avatarUploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 3, Slice 1: listing reads (browsing individual listings) are
+// high-volume normal marketplace traffic — loose cap, separate bucket
+// from writes for the same reason profileReadLimiter is separate from
+// profileWriteLimiter.
+export const listingReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Creating/editing/withdrawing listings is much lower-volume in
+// legitimate use than browsing them.
+export const listingWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 3, Slice 3: image upload does disk I/O, byte-sniffing, AND a
+// sharp re-encode pass per file (up to 6 files) — the most expensive
+// per-request operation in this router, tighter than plain listing
+// writes for the same reason avatarUploadLimiter is tighter than
+// profileWriteLimiter.
+export const listingImageUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 3, Slice 4: cart reads re-resolve every item against its live
+// Listing on every call (services/cartService.js) — not free, but still
+// much cheaper than an image upload, and a buyer legitimately polls their
+// own cart fairly often while shopping.
+export const cartReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+export const cartWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 3, Slice 2: search is the highest-volume read path in the app
+// (every keystroke on the frontend could plausibly trigger one) — looser
+// than listingReadLimiter, and its own bucket so a search burst can't eat
+// the budget for viewing individual listings.
+export const searchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 4: escrow reads — checking order status, viewing audit trails.
+// Higher than write because buyers/sellers legitimately poll for updates.
+export const escrowReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 4: escrow writes — checkout, ship, confirm, dispute, resolve.
+// Tighter because each involves Stripe API calls and state transitions.
+export const escrowWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 4: Stripe webhook — generous since Stripe retries from a shared IP
+// pool; too tight a limit would reject legitimate retry traffic. Keyed on
+// IP but Stripe's source IPs are limited, so this is mainly a DoS floor.
+export const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 5: verification submissions — tight to prevent spamming the review
+// queue with bogus documents.
+export const verificationSubmitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Phase 5: admin verification review (approve/reject) — separate bucket from
+// submissions so a burst of submissions can't eat the review budget.
+export const verificationAdminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler,

@@ -16,6 +16,29 @@ export function validateBody(schema) {
   };
 }
 
+// Phase 3, Slice 2: the query-string equivalent of validateBody. This is
+// what actually blocks NoSQL operator injection on search/list params —
+// Express's query parser (qs) turns ?category[$gt]= into
+// req.query.category = {"$gt": ""} (an object, not a string), and a zod
+// field typed z.string() or z.coerce.number() fails safeParse cleanly on
+// an object input (coercion produces NaN, string types just don't match).
+// Nothing downstream ever sees an unvalidated req.query value — every
+// service function that builds a Mongo filter reads from
+// req.validatedQuery, never req.query directly.
+export function validateQuery(schema) {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Validation failed",
+        details: result.error.flatten(),
+      });
+    }
+    req.validatedQuery = result.data;
+    next();
+  };
+}
+
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
 // Post-Phase-2-self-attack fix (Finding 4): a malformed :id used to reach

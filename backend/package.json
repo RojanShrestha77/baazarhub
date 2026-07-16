@@ -9,7 +9,8 @@
     "dev": "nodemon src/server.js",
     "lint": "eslint src/",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --runInBand",
-    "test:timing": "node tests/timing/login-timing.js"
+    "test:timing": "node tests/timing/login-timing.js",
+    "seed:categories": "node scripts/seedCategories.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -28,6 +29,8 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "otplib": "^12.0.1",
+    "sharp": "^0.35.3",
+    "stripe": "^17.7.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

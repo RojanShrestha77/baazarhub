@@ -2,18 +2,39 @@ import mongoose from "mongoose";
 
 const { Schema } = mongoose;
 
-// Append-only record of privilege-relevant admin actions (Phase 2, Slice
-// 2). Never updated or deleted by application code — only ever created.
 const auditLogSchema = new Schema({
-  actor: { type: Schema.Types.ObjectId, ref: "User", required: true },
-  subject: { type: Schema.Types.ObjectId, ref: "User", required: true },
-  action: { type: String, required: true },
-  before: { type: Schema.Types.Mixed },
-  after: { type: Schema.Types.Mixed },
-  createdAt: { type: Date, default: Date.now },
+  actor:    { type: Schema.Types.ObjectId, ref: "User" },
+  subject:  { type: Schema.Types.ObjectId, ref: "User" },
+  action:   { type: String, required: true },
+  outcome:  { type: String, enum: ["success", "failure"], default: "success" },
+  ip:       { type: String },
+  userAgent:{ type: String },
+  metadata: { type: Schema.Types.Mixed },
+  before:   { type: Schema.Types.Mixed },
+  after:    { type: Schema.Types.Mixed },
+  createdAt:{ type: Date, default: Date.now },
 });
 
 auditLogSchema.index({ subject: 1, createdAt: -1 });
 auditLogSchema.index({ actor: 1, createdAt: -1 });
+auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ ip: 1, createdAt: -1 });
+auditLogSchema.index({ outcome: 1 });
 
-export const AuditLog = mongoose.model("AuditLog", auditLogSchema);
+auditLogSchema.pre("save", function (next) {
+  if (!this.isNew) {
+    return next(new Error("AuditLog is append-only — updates are not allowed"));
+  }
+  next();
+});
+
+const AuditLog = mongoose.model("AuditLog", auditLogSchema);
+
+const FORBIDDEN = [
+  "deleteOne", "deleteMany", "findOneAndUpdate", "findOneAndReplace",
+  "updateOne", "updateMany", "replaceOne", "findByIdAndUpdate",
+  "findByIdAndDelete", "findOneAndDelete", "bulkWrite",
+];
+FORBIDDEN.forEach((m) => { AuditLog[m] = undefined; });
+
+export { AuditLog };
