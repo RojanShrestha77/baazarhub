@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 const CSRF_COOKIE = "__Host-bazaarhub-csrf";
 
 function getCsrfToken(): string | null {
