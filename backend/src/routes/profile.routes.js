@@ -9,7 +9,7 @@ import {
   profileWriteLimiter,
   avatarUploadLimiter,
 } from "../middleware/rateLimiters.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateObjectIdParam } from "../middleware/validate.js";
 import { profileUpdateSchema } from "../validators/profile.schemas.js";
 import {
   getOrCreateProfile,
@@ -133,7 +133,7 @@ router.post(
 // is the point of a marketplace. Nothing sensitive is reachable through
 // this path because serializePublicProfile never includes it — there's
 // no delete()-on-the-way-out step that could be forgotten.
-router.get("/:id", [requireSession], profileReadLimiter, async (req, res, next) => {
+router.get("/:id", [requireSession], profileReadLimiter, validateObjectIdParam("id"), async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
@@ -146,18 +146,24 @@ router.get("/:id", [requireSession], profileReadLimiter, async (req, res, next) 
   }
 });
 
-router.get("/:id/avatar", [requireSession], profileReadLimiter, async (req, res, next) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return res.status(404).json({ error: "Not found" });
+router.get(
+  "/:id/avatar",
+  [requireSession],
+  profileReadLimiter,
+  validateObjectIdParam("id"),
+  async (req, res, next) => {
+    try {
+      const user = await User.findById(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "Not found" });
+      }
+      const profile = await getOrCreateProfile(user._id);
+      return streamAvatar(profile.avatarPath, res, next);
+    } catch (err) {
+      next(err);
     }
-    const profile = await getOrCreateProfile(user._id);
-    return streamAvatar(profile.avatarPath, res, next);
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 function streamAvatar(storedFilename, res, next) {
   if (!storedFilename) {

@@ -2,7 +2,7 @@ import { createAuthzRouter } from "../lib/authzRouter.js";
 import { requireRole, requireMfaVerified } from "../middleware/authz.js";
 import { requireCsrfToken } from "../lib/csrf.js";
 import { adminActionLimiter } from "../middleware/rateLimiters.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateObjectIdParam } from "../middleware/validate.js";
 import { roleChangeSchema, tierChangeSchema } from "../validators/admin.schemas.js";
 import { changeUserRole, changeUserTier, SelfTargetError } from "../services/adminService.js";
 
@@ -24,6 +24,7 @@ router.patch(
   ADMIN_MFA,
   requireCsrfToken,
   adminActionLimiter,
+  validateObjectIdParam("id"),
   validateBody(roleChangeSchema),
   async (req, res, next) => {
     try {
@@ -47,6 +48,7 @@ router.patch(
   ADMIN_MFA,
   requireCsrfToken,
   adminActionLimiter,
+  validateObjectIdParam("id"),
   validateBody(tierChangeSchema),
   async (req, res, next) => {
     try {
