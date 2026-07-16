@@ -5,7 +5,9 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ShoppingBag, Store, ArrowRight, Star, Shield, Truck } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Listing } from "@/types";
+import { useRouter } from "next/navigation";
+import { formatPrice } from "@/types";
+import type { SearchResult } from "@/types";
 
 const categories = [
   { name: "Electronics", icon: "🖥️", color: "bg-blue-50 text-blue-600" },
@@ -28,10 +30,11 @@ const stagger = {
 };
 
 export default function HomeClient() {
-  const [featured, setFeatured] = useState<Listing[]>([]);
+  const router = useRouter();
+  const [featured, setFeatured] = useState<SearchResult["listings"]>([]);
 
   useEffect(() => {
-    api.get("/listings/search?limit=8").then((data) => setFeatured(data as Listing[])).catch(() => {});
+    api.get<SearchResult>("/listings/search?limit=8").then((data) => setFeatured(data.listings || [])).catch(() => {});
   }, []);
 
   return (
@@ -67,7 +70,7 @@ export default function HomeClient() {
         </motion.div>
         <motion.div initial="initial" whileInView="animate" viewport={{ once: true }} variants={stagger} className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {categories.map((cat) => (
-            <motion.div key={cat.name} variants={fadeUp} whileHover={{ y: -4 }} className={`${cat.color} rounded-2xl p-6 cursor-pointer transition-shadow hover:shadow-lg`}>
+            <motion.div key={cat.name} variants={fadeUp} whileHover={{ y: -4 }} className={`${cat.color} rounded-2xl p-6 cursor-pointer transition-shadow hover:shadow-lg`} onClick={() => router.push(`/marketplace?category=${encodeURIComponent(cat.name)}`)}>
               <div className="text-3xl mb-3">{cat.icon}</div>
               <h3 className="font-semibold text-gray-900">{cat.name}</h3>
             </motion.div>
@@ -84,16 +87,16 @@ export default function HomeClient() {
             </motion.div>
             <motion.div initial="initial" whileInView="animate" viewport={{ once: true }} variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {featured.map((item) => (
-                <motion.div key={item._id} variants={fadeUp} whileHover={{ y: -6 }}>
-                  <Link href={`/listings/${item._id}`} className="block bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl transition-all group">
+                <motion.div key={item.id} variants={fadeUp} whileHover={{ y: -6 }}>
+                  <Link href={`/listings/${item.id}`} className="block bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl transition-all group">
                     <div className="aspect-[4/3] bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
                       <ShoppingBag className="w-12 h-12 text-indigo-300 group-hover:scale-110 transition-transform" />
                     </div>
                     <div className="p-4">
                       <h3 className="font-semibold text-gray-900 truncate">{item.title}</h3>
                       <div className="flex items-center justify-between mt-2">
-                        <span className="text-lg font-bold text-indigo-600">${item.price.toFixed(2)}</span>
-                        <span className="text-xs text-gray-400 capitalize">{item.condition.replace("_", " ")}</span>
+                        <span className="text-lg font-bold text-indigo-600">{formatPrice(item.priceMinorUnits)}</span>
+                        <span className="text-xs text-gray-400">{item.status === "active" ? "Active" : item.status}</span>
                       </div>
                     </div>
                   </Link>
