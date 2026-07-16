@@ -5,10 +5,16 @@ import { motion } from "framer-motion";
 import { api } from "@/lib/api";
 import toast from "react-hot-toast";
 
+interface MfaEnrolResponse {
+  otpauthUri: string;
+  secret: string;
+  recoveryCodes: string[];
+}
+
 export default function MfaEnrolPage() {
   const [step, setStep] = useState<"enrol" | "verify" | "done">("enrol");
-  const [secret, setSecret] = useState("");
   const [uri, setUri] = useState("");
+  const [secret, setSecret] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -16,9 +22,9 @@ export default function MfaEnrolPage() {
   const startEnrol = async () => {
     setSubmitting(true);
     try {
-      const data = await api.post("/auth/mfa/enrol") as { secret: string; uri: string };
+      const data = await api.post<MfaEnrolResponse>("/auth/mfa/enrol");
+      setUri(data.otpauthUri);
       setSecret(data.secret);
-      setUri(data.uri);
       setStep("verify");
     } catch {
       toast.error("Failed to start enrollment");
@@ -30,7 +36,7 @@ export default function MfaEnrolPage() {
   const verifyCode = async () => {
     setSubmitting(true);
     try {
-      const data = await api.post("/auth/mfa/verify", { code }) as { recoveryCodes?: string[] };
+      const data = await api.post<{ recoveryCodes?: string[] }>("/auth/mfa/verify", { code });
       if (data.recoveryCodes) setCodes(data.recoveryCodes);
       setStep("done");
       toast.success("MFA enabled!");
@@ -57,10 +63,10 @@ export default function MfaEnrolPage() {
           {step === "verify" && (
             <>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Scan QR Code</h1>
-              <p className="text-sm text-gray-500 mb-4">Scan this URI in your authenticator app, then enter the code.</p>
+              <p className="text-sm text-gray-500 mb-4">Scan this QR code in your authenticator app, then enter the code.</p>
               <div className="bg-gray-50 rounded-xl p-4 mb-4 text-xs font-mono break-all text-gray-600">{uri}</div>
               <p className="text-xs text-gray-400 mb-4">Secret: <code className="font-mono">{secret}</code></p>
-              <input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} className="w-full px-4 py-3 text-center text-2xl tracking-widest border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none mb-4" />
+              <input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} className="w-full px-4 py-3 text-center text-2xl tracking-widest border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none mb-4" />
               <button onClick={verifyCode} disabled={submitting || code.length !== 6} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                 {submitting ? "Verifying..." : "Verify"}
               </button>
@@ -70,8 +76,8 @@ export default function MfaEnrolPage() {
             <>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">MFA Enabled</h1>
               <p className="text-sm text-gray-500 mb-4">Save these recovery codes somewhere safe.</p>
-              <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                {codes.map((c, i) => <div key={i} className="font-mono text-sm text-gray-700">{c}</div>)}
+              <div className="bg-gray-50 rounded-xl p-4 mb-4 text-left">
+                {codes.map((c, i) => <div key={i} className="font-mono text-sm text-gray-700 py-1">{c}</div>)}
               </div>
             </>
           )}
