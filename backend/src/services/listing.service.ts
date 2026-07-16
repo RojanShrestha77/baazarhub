@@ -47,7 +47,7 @@ interface ListingFields {
   description?: string;
   priceMinorUnits: number;
   category: Types.ObjectId | string;
-  quantity: number;
+  quantity?: number;
 }
 
 interface ListingPatch {
