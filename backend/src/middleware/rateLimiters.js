@@ -108,3 +108,45 @@ export const exportLimiter = rateLimit({
   legacyHeaders: false,
   handler: jsonRateLimitHandler,
 });
+
+// Post-Phase-2-self-attack fix (Finding 1): every profile route needs a
+// limiter, not just export — reads and writes get SEPARATE buckets rather
+// than sharing one, because they have different legitimate-traffic
+// profiles and different abuse profiles. A shared bucket would let a
+// burst of normal profile-browsing (reads) eat the budget a legitimate
+// user needs for their own profile edits (writes), or vice versa.
+//
+// Reads (GET /me, GET /:id, avatar GETs) are the highest-volume normal
+// traffic on this router (marketplace browsing), so the cap is loose —
+// but not absent. Its other job is bounding docs/security-decisions.md's
+// ObjectId-enumeration acceptance: GET /:id is the brute-force surface
+// that acceptance now depends on being throttled.
+export const profileReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Writes (PATCH /me, POST /me/import) are mutating and much lower-volume
+// in legitimate use — a user edits their profile occasionally, not every
+// few seconds.
+export const profileWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});
+
+// Avatar upload does disk I/O plus byte-sniffing (fileTypeFromBuffer) on
+// every call — more expensive per-request than a JSON PATCH, same
+// reasoning as mfaEnrolLimiter being tighter than mfaVerifyLimiter.
+export const avatarUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonRateLimitHandler,
+});

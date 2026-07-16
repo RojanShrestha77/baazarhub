@@ -3,7 +3,12 @@ import fs from "node:fs";
 import { createAuthzRouter } from "../lib/authzRouter.js";
 import { requireSession } from "../middleware/authz.js";
 import { requireCsrfToken } from "../lib/csrf.js";
-import { exportLimiter } from "../middleware/rateLimiters.js";
+import {
+  exportLimiter,
+  profileReadLimiter,
+  profileWriteLimiter,
+  avatarUploadLimiter,
+} from "../middleware/rateLimiters.js";
 import { validateBody } from "../middleware/validate.js";
 import { profileUpdateSchema } from "../validators/profile.schemas.js";
 import {
@@ -19,7 +24,7 @@ import { User } from "../models/User.js";
 const router = createAuthzRouter();
 
 // ── Own profile ───────────────────────────────────────────────────────
-router.get("/me", [requireSession], async (req, res, next) => {
+router.get("/me", [requireSession], profileReadLimiter, async (req, res, next) => {
   try {
     const profile = await getOrCreateProfile(req.user._id);
     return res.status(200).json(serializePrivateProfile(profile, req.user));
@@ -32,6 +37,7 @@ router.patch(
   "/me",
   [requireSession],
   requireCsrfToken,
+  profileWriteLimiter,
   validateBody(profileUpdateSchema),
   async (req, res, next) => {
     try {
@@ -47,6 +53,7 @@ router.post(
   "/me/avatar",
   [requireSession],
   requireCsrfToken,
+  avatarUploadLimiter,
   receiveAvatarUpload,
   validateAndStoreAvatar,
   async (req, res, next) => {
@@ -61,7 +68,7 @@ router.post(
 
 // Always "mine" — no ownership resolver needed, req.user is the only
 // possible owner.
-router.get("/me/avatar", [requireSession], async (req, res, next) => {
+router.get("/me/avatar", [requireSession], profileReadLimiter, async (req, res, next) => {
   try {
     const profile = await getOrCreateProfile(req.user._id);
     return streamAvatar(profile.avatarPath, res, next);
@@ -109,6 +116,7 @@ router.post(
   "/me/import",
   [requireSession],
   requireCsrfToken,
+  profileWriteLimiter,
   validateBody(profileUpdateSchema),
   async (req, res, next) => {
     try {
@@ -125,7 +133,7 @@ router.post(
 // is the point of a marketplace. Nothing sensitive is reachable through
 // this path because serializePublicProfile never includes it — there's
 // no delete()-on-the-way-out step that could be forgotten.
-router.get("/:id", [requireSession], async (req, res, next) => {
+router.get("/:id", [requireSession], profileReadLimiter, async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
@@ -138,7 +146,7 @@ router.get("/:id", [requireSession], async (req, res, next) => {
   }
 });
 
-router.get("/:id/avatar", [requireSession], async (req, res, next) => {
+router.get("/:id/avatar", [requireSession], profileReadLimiter, async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {

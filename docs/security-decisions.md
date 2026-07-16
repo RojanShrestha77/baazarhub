@@ -79,22 +79,37 @@ Public vs. private profile data uses two separate serializer functions
 not one function with a delete-on-the-way-out flag — a forgotten flag on a future call site
 is a silent data leak, a wrong import is a visible mistake.
 
-## 2026-07-16 — IDs are Mongo ObjectIds, not opaque tokens (accepted residual risk)
+## 2026-07-16 — IDs are Mongo ObjectIds, not opaque tokens (accepted residual risk, revised)
 
 `:id` routes (profile viewing, admin role/tier changes) use the Mongo `_id` directly rather
 than a separate opaque/random public identifier. ObjectIds embed a 4-byte creation timestamp,
 so they are *not* uniformly random — an attacker who knows roughly when an account was
 created can narrow the search space for that account's id far below the full 96 bits of
 entropy, though the remaining ~40 bits (5-byte random + 3-byte counter) still make brute-force
-enumeration impractical for a single guess. This is an accepted residual risk for Phase 2, not
-a fix: nothing in the current API exposes an ordered listing of ids to enumerate against (no
-"list all users" or "list all sellers" endpoint), and every `:id` route re-resolves the
-resource from the DB and checks ownership/role server-side rather than trusting the id as
-proof of anything — an attacker who *does* guess a valid id still can't act on it unless they
-already own it or hold the matching admin privilege. Revisit if a future phase adds a public
-listing endpoint that narrows the timestamp-adjacency search space, or if the "guess a
-low-cardinality private resource id" attack surface grows (e.g. a future orders/documents
-resource with low natural volume, where the timestamp window is unusually informative).
+enumeration impractical for a single guess *if attempts are throttled*.
+
+**That "if" was originally unstated and, when the Phase 2 self-attack pass actually tested it,
+untrue.** `GET /api/profiles/:id` had no rate limiter at all — the acceptance below was written
+assuming a bounded guess rate without anything in the code enforcing that bound. This wasn't
+caught by design review, it was caught by hammering the route with 20 rapid requests and
+watching all 20 succeed. The original entry is being revised rather than left to stand, because
+the reasoning it gave ("brute-force is impractical") was doing work the code wasn't actually
+doing.
+
+The acceptance now explicitly depends on `profileReadLimiter` (`src/middleware/rateLimiters.js`,
+120 requests / 15 min per IP), added specifically to back this decision, not as a generic
+hardening pass. With that limiter in place: nothing in the current API exposes an ordered
+listing of ids to enumerate against (no "list all users"/"list all sellers" endpoint); every
+`:id` route re-resolves the resource from the DB and checks ownership/role server-side rather
+than trusting the id as proof of anything, so a guessed id still can't be acted on without
+already owning it or holding the matching admin privilege; and the per-IP request budget bounds
+how many ids a single attacker can test against the remaining ~40 bits of non-timestamp entropy
+per window. Revisit if a future phase adds a public listing endpoint that narrows the
+timestamp-adjacency search space, if the "guess a low-cardinality private resource id" surface
+grows (e.g. a future orders/documents resource with low natural volume), or if the rate limiter
+is ever removed or its store becomes distributed without a shared budget (see the FIXME on
+`express-rate-limit`'s in-memory store in `rateLimiters.js` — the same horizontal-scaling gap
+applies here).
 
 ## 2026-07-16 — Data export/import is allowlist-scoped and self-only
 
