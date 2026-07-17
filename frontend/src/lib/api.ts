@@ -60,6 +60,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 export const api = {
   get: <T>(url: string, opts?: RequestOptions) => request<T>(url, { ...opts }),
   post: <T>(url: string, body?: unknown, opts?: RequestOptions) => request<T>(url, { method: "POST", body, ...opts }),
+  put: <T>(url: string, body?: unknown, opts?: RequestOptions) => request<T>(url, { method: "PUT", body, ...opts }),
   patch: <T>(url: string, body?: unknown, opts?: RequestOptions) => request<T>(url, { method: "PATCH", body, ...opts }),
   delete: <T>(url: string, opts?: RequestOptions) => request<T>(url, { method: "DELETE", ...opts }),
   upload: <T>(url: string, formData: FormData, opts?: RequestOptions) => request<T>(url, { method: "POST", body: formData, ...opts }),

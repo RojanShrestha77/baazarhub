@@ -9,6 +9,66 @@ export interface UserProfile {
   sellerTier: "unverified" | "verified" | "trusted";
   sellerApplicationStatus: "none" | "pending" | "approved" | "rejected";
   mfaEnabled: boolean;
+  emailVerified?: boolean;
+}
+
+// Public profile (someone else's) — sellers additionally carry a rating badge.
+export interface PublicProfile {
+  id: string;
+  displayName: string;
+  bio: string;
+  location: string;
+  hasAvatar: boolean;
+  sellerRating?: RatingSummary;
+}
+
+export interface RatingSummary {
+  average: number;
+  count: number;
+}
+
+export interface Review {
+  id: string;
+  reviewerId: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface ReviewsResponse {
+  summary: RatingSummary;
+  reviews: Review[];
+}
+
+export interface Address {
+  id: string;
+  label: string;
+  recipientName: string;
+  phone: string;
+  line1: string;
+  line2: string;
+  city: string;
+  district: string;
+  province: string;
+  postalCode: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  buyerId: string;
+  sellerId: string;
+  listingId: string;
+  lastMessageAt: string;
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  body: string;
+  reported: boolean;
+  createdAt: string;
 }
 
 export interface Category {
@@ -54,7 +114,7 @@ export interface Cart {
   totalMinorUnits: number;
 }
 
-export type OrderStatus = "created" | "payment_held" | "shipped" | "delivered" | "released" | "disputed" | "refunded";
+export type OrderStatus = "created" | "payment_held" | "shipped" | "delivered" | "released" | "disputed" | "refunded" | "cancelled";
 
 export interface Order {
   _id: string;
