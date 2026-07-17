@@ -165,6 +165,13 @@ export async function searchListings(filters: SearchFilters) {
   return { listings, total, page, limit };
 }
 
+// A seller's own listings across ALL statuses (draft/active/sold/withdrawn),
+// scoped strictly to sellerId — never the public status:"active" filter. This
+// is the dashboard/management view, distinct from public search.
+export async function listSellerListings(sellerId: Types.ObjectId | string): Promise<IListing[]> {
+  return ListingModel.find({ sellerId }).sort({ createdAt: -1 });
+}
+
 // Soft delete — withdraws rather than hard-deleting, keeping the record.
 export async function withdrawListing(listing: IListing): Promise<IListing> {
   if (listing.status === "withdrawn") {

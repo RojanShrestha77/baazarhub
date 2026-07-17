@@ -55,6 +55,56 @@ export async function changeUserRole(actorId: IdLike, subjectId: IdLike, newRole
   return subject;
 }
 
+// Pending seller applicants, most recent first. Admin-only (route-guarded).
+// Never returns secret fields.
+export async function listSellerApplications(): Promise<IUser[]> {
+  return UserModel.find({ sellerApplicationStatus: "pending" })
+    .select("-passwordHash -passwordHistory -totpSecret -loginFailure")
+    .sort({ updatedAt: -1 })
+    .lean<IUser[]>();
+}
+
+// Approving an application is the ONLY self-service path to the seller role,
+// and it still requires an admin (route-level requireRole("admin") +
+// requireMfaVerified). Flips role → "seller" and marks the application
+// approved atomically, then revokes the subject's sessions so the new role
+// takes effect on their next request. Idempotent-ish: a non-pending applicant
+// returns null (treated as 404 upstream).
+export async function approveSellerApplication(actorId: IdLike, subjectId: IdLike): Promise<IUser | null> {
+  if (String(actorId) === String(subjectId)) {
+    throw new SelfTargetError();
+  }
+
+  const subject = await UserModel.findById(subjectId);
+  if (!subject || subject.sellerApplicationStatus !== "pending") return null;
+
+  const beforeRole = subject.role;
+  subject.role = "seller";
+  subject.sellerApplicationStatus = "approved";
+  await subject.save();
+
+  await revokeAllSessionsForUser(subjectId as Types.ObjectId);
+  await recordChange({ actorId, subjectId, action: "seller_application_approve", before: beforeRole, after: "seller" });
+
+  return subject;
+}
+
+export async function rejectSellerApplication(actorId: IdLike, subjectId: IdLike): Promise<IUser | null> {
+  if (String(actorId) === String(subjectId)) {
+    throw new SelfTargetError();
+  }
+
+  const subject = await UserModel.findById(subjectId);
+  if (!subject || subject.sellerApplicationStatus !== "pending") return null;
+
+  subject.sellerApplicationStatus = "rejected";
+  await subject.save();
+
+  await recordChange({ actorId, subjectId, action: "seller_application_reject", before: "pending", after: "rejected" });
+
+  return subject;
+}
+
 export async function changeUserTier(actorId: IdLike, subjectId: IdLike, newTier: SellerTier): Promise<IUser | null> {
   if (String(actorId) === String(subjectId)) {
     throw new SelfTargetError();

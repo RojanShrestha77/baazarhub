@@ -5,6 +5,7 @@ import {
   updateListing,
   withdrawListing,
   searchListings,
+  listSellerListings,
   TierLimitError,
   InvalidTransitionError,
   InvalidCategoryError,
@@ -50,6 +51,16 @@ export class ListingController {
         page: result.page,
         limit: result.limit,
       });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // Seller's own listings, all statuses — scoped to req.user in the service.
+  mine = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const listings = await listSellerListings(req.user!._id);
+      return res.status(200).json({ listings: listings.map(serializeListing) });
     } catch (err) {
       next(err);
     }

@@ -15,6 +15,14 @@ const admin = new AdminController();
 const ADMIN_MFA = [requireRole("admin"), requireMfaVerified];
 
 router.get("/users", ADMIN_MFA, adminActionLimiter, admin.list);
+
+// Seller applications — self-service requests an admin grants or denies.
+// Approving is the only self-service path to the seller role and is still
+// admin-gated + MFA-verified + CSRF.
+router.get("/seller-applications", ADMIN_MFA, adminActionLimiter, admin.listSellerApplications);
+router.post("/seller-applications/:id/approve", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), admin.approveSellerApplication);
+router.post("/seller-applications/:id/reject", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), admin.rejectSellerApplication);
+
 router.patch("/users/:id/role", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(roleChangeSchema), admin.changeRole);
 router.patch("/users/:id/tier", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(tierChangeSchema), admin.changeTier);
 

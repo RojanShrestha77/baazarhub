@@ -34,6 +34,6 @@ export const CSRF_COOKIE_NAME = "__Host-bazaarhub-csrf";
 export const CSRF_HEADER_NAME = "x-csrf-token";
 
 // ── Password policy (ASVS V2.1: length over composition) ─────────────────
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 export const PASSWORD_HISTORY_LIMIT = 5; // reuse prevention: last N hashes
