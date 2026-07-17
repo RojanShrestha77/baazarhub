@@ -66,5 +66,6 @@ export function serializePrivateProfile(profile: IProfile, user: IUser) {
     sellerTier: user.sellerTier,
     sellerApplicationStatus: user.sellerApplicationStatus,
     mfaEnabled: user.mfaEnabled,
+    emailVerified: user.emailVerified,
   };
 }
