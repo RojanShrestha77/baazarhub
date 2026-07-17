@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Truck, CheckCircle, AlertTriangle, Shield, Package, ChevronLeft, Clock } from "lucide-react";
+import { Truck, CheckCircle, AlertTriangle, Shield, Package, ChevronLeft, Clock, Ban, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Order } from "@/types";
@@ -19,6 +19,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: any; de
   disputed: { label: "Disputed", color: "bg-red-100 text-red-800", icon: AlertTriangle, desc: "A dispute has been opened. Admin will review." },
   released: { label: "Completed", color: "bg-gray-100 text-gray-800", icon: CheckCircle, desc: "Order completed. Funds released to seller." },
   refunded: { label: "Refunded", color: "bg-gray-100 text-gray-800", icon: Package, desc: "Order refunded." },
+  cancelled: { label: "Cancelled", color: "bg-gray-100 text-gray-600", icon: Ban, desc: "This order was cancelled and any payment released." },
 };
 
 const timelineSteps = ["created", "payment_held", "shipped", "delivered"];
@@ -130,6 +131,11 @@ export default function OrderDetailPage() {
           {(order.status === "payment_held" || order.status === "shipped") && isBuyer && (
             <button onClick={() => doAction("dispute", "Dispute")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50 transition-all active:scale-[0.98] shadow-sm">
               <AlertTriangle className="w-5 h-5" />{actionLoading === "dispute" ? "Disputing..." : "Raise Dispute"}
+            </button>
+          )}
+          {(order.status === "created" || order.status === "payment_held") && isBuyer && (
+            <button onClick={() => doAction("cancel", "Cancellation")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-50 disabled:opacity-50 transition-all active:scale-[0.98]">
+              <X className="w-5 h-5" />{actionLoading === "cancel" ? "Cancelling…" : "Cancel Order"}
             </button>
           )}
           {order.status === "delivered" && (
