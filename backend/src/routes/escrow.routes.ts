@@ -1,5 +1,6 @@
 import { createAuthzRouter } from "../lib/authzRouter";
 import { requireSession, requireRole, requireMfaVerified } from "../middlewares/authz";
+import { requireEmailVerified } from "../middlewares/session";
 import { requireCsrfToken } from "../lib/csrf";
 import { escrowReadLimiter, escrowWriteLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateObjectIdParam } from "../middlewares/validate";
@@ -9,7 +10,7 @@ import { EscrowController } from "../controllers/escrow.controller";
 const router = createAuthzRouter();
 const escrow = new EscrowController();
 
-router.post("/checkout", [requireSession], requireCsrfToken, escrowWriteLimiter, validateBody(checkoutSchema), escrow.checkout);
+router.post("/checkout", [requireSession], requireEmailVerified, requireCsrfToken, escrowWriteLimiter, validateBody(checkoutSchema), escrow.checkout);
 
 router.get("/orders", [requireSession], escrowReadLimiter, escrow.listOrders);
 
@@ -22,6 +23,8 @@ router.post("/orders/:orderId/ship", [requireSession, requireRole("seller")], re
 router.post("/orders/:orderId/confirm-delivery", [requireSession], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), escrow.confirmDelivery);
 
 router.post("/orders/:orderId/dispute", [requireSession], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), escrow.openDispute);
+
+router.post("/orders/:orderId/cancel", [requireSession], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), escrow.cancelOrder);
 
 router.post("/orders/:orderId/resolve-dispute", [requireSession, requireRole("admin"), requireMfaVerified], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), validateBody(resolveDisputeSchema), escrow.resolveDispute);
 

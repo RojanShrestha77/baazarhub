@@ -4,6 +4,7 @@ import {
   markShipped,
   confirmDelivery,
   openDispute,
+  cancelOrderByBuyer,
   resolveDispute as resolveDisputeService,
   adminRelease,
   getOrder,
@@ -87,6 +88,24 @@ export class EscrowController {
       return res.status(200).json(events);
     } catch (err) {
       next(err);
+    }
+  };
+
+  cancelOrder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const order = await OrderModel.findById(req.params.orderId);
+      if (!order) return res.status(404).json({ error: "Not found" });
+      if (String(order.buyerId) !== String(req.user!._id)) return res.status(404).json({ error: "Not found" });
+      const updated = await cancelOrderByBuyer(req.params.orderId, req.user!._id);
+      if (!updated) return res.status(409).json({ error: "Transition failed — state changed" });
+      logEvent({ actor: req.user!._id, action: "escrow_cancel", outcome: "success", subject: order.sellerId, ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: req.params.orderId, fromStatus: order.status } }).catch(() => {});
+      // Both parties are notified: the buyer that their cancellation went
+      // through, the seller that a held/pending order was withdrawn.
+      sendOrderRefundedNotification(order.buyerId, req.params.orderId);
+      sendOrderRefundedNotification(order.sellerId, req.params.orderId);
+      return res.status(200).json(updated);
+    } catch (err) {
+      this.handleError(err, res, next);
     }
   };
 

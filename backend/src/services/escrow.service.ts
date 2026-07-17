@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import { OrderModel, IOrder, OrderStatus } from "../models/order.model";
 import { EscrowEventModel, EscrowTriggerType } from "../models/escrow-event.model";
+import { WebhookEventModel } from "../models/webhook-event.model";
 import { ListingModel } from "../models/listing.model";
 import { UserModel } from "../models/user.model";
 import { SellerTier } from "../types/user.type";
@@ -302,7 +303,23 @@ export async function tryAutoRelease(order: IOrder) {
 }
 
 export async function handlePaymentSucceeded(paymentIntentId: string, stripeEventId: string) {
+  // Idempotency ledger: claim this event id first. Stripe redelivers webhooks
+  // on any non-2xx (and sometimes even on success), so the same event can
+  // arrive multiple times. The unique index on eventId makes the insert the
+  // single arbiter — a duplicate delivery hits E11000 and we no-op. This is
+  // belt-and-braces on top of the {status: "created"} guard in transitionOrder.
   const order = await OrderModel.findOne({ stripePaymentIntentId: paymentIntentId });
+  try {
+    await WebhookEventModel.create({
+      eventId: stripeEventId,
+      type: "payment_intent.succeeded",
+      orderId: order?._id,
+    });
+  } catch (err) {
+    if ((err as { code?: number })?.code === 11000) return order; // already processed
+    throw err;
+  }
+
   if (!order || order.status !== "created") return order;
   const result = await transitionOrder(order._id, "created", "payment_held", "webhook", null, {
     reason: "Payment intent succeeded",
@@ -360,4 +377,90 @@ export async function listOrders(userId: IdLike, role: string): Promise<IOrder[]
 
 export async function getOrderEvents(orderId: IdLike) {
   return EscrowEventModel.find({ orderId }).sort({ createdAt: 1 });
+}
+
+// ── Reservation expiry sweep ──
+// checkout() reserves stock (decrements listing.quantity) BEFORE payment, and
+// only rolls it back if the Stripe call itself throws. A buyer who abandons
+// the payment leaves the order in `created` forever with stock held hostage.
+// This sweep cancels `created` orders older than RESERVATION_TTL_MS, returns
+// their stock, and cancels the (uncaptured) payment intent.
+//
+// Race safety: the cancel is an atomic findOneAndUpdate guarded on
+// {status: "created"}, the same guard handlePaymentSucceeded uses. Only one of
+// {sweep, webhook} can win. If the sweep wins a near-simultaneous payment, the
+// buyer's intent is cancelled (funds never captured — createPaymentIntent uses
+// manual capture), so no money is trapped. TTL is chosen well above realistic
+// payment-completion time to make that collision vanishingly rare.
+export const RESERVATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// Atomically cancel an order and undo its side effects: return reserved stock
+// to the listing and release the (uncaptured) payment hold. The status change
+// is a single findOneAndUpdate guarded on the order's currently-loaded status,
+// so a concurrent transition (webhook, another cancel) can't double-restore —
+// the loser sees null and no-ops. Shared by the reservation sweep and the
+// buyer-initiated cancel so both take exactly one code path. Returns the
+// updated order, or null if it had already moved on.
+async function cancelAndRestore(
+  order: IOrder,
+  triggerType: EscrowTriggerType,
+  actorId: IdLike | null,
+  reason: string,
+): Promise<IOrder | null> {
+  const fromStatus = order.status;
+  const updated = await OrderModel.findOneAndUpdate(
+    { _id: order._id, status: fromStatus },
+    { $set: { status: "cancelled", cancelledAt: new Date() } },
+    { new: true },
+  );
+  if (!updated) return null;
+
+  await ListingModel.findOneAndUpdate({ _id: order.listingId }, { $inc: { quantity: order.quantity } });
+
+  if (order.stripePaymentIntentId) {
+    try {
+      await stripeService.cancelPaymentIntent(order.stripePaymentIntentId);
+    } catch (err) {
+      console.error("Cancel: payment intent cancel failed:", (err as Error).message);
+    }
+  }
+
+  await EscrowEventModel.create({
+    orderId: order._id,
+    fromStatus,
+    toStatus: "cancelled",
+    triggeredBy: actorId,
+    triggerType,
+    reason,
+    metadata: { restoredQuantity: order.quantity },
+  });
+  return updated;
+}
+
+export async function expireStaleReservations(now: number = Date.now()): Promise<number> {
+  const cutoff = new Date(now - RESERVATION_TTL_MS);
+  const stale = await OrderModel.find({ status: "created", createdAt: { $lt: cutoff } });
+
+  let cancelled = 0;
+  for (const order of stale) {
+    const result = await cancelAndRestore(order, "system", null, "Reservation expired — payment not completed within TTL");
+    if (result) cancelled += 1;
+  }
+  return cancelled;
+}
+
+// Buyer-initiated cancellation. Allowed only BEFORE the seller ships — i.e.
+// from `created` (unpaid) or `payment_held` (paid, not yet shipped). Once the
+// order is shipped or beyond, the buyer's recourse is dispute/return, not
+// cancel. Restores stock and releases any payment hold via cancelAndRestore.
+export async function cancelOrderByBuyer(orderId: IdLike, buyerId: IdLike): Promise<IOrder | null> {
+  const order = await OrderModel.findById(orderId);
+  if (!order) throw new OrderNotFoundError();
+  // 404-parity with the rest of escrow: never reveal that an order exists to a
+  // non-owner. The controller also checks; this keeps the service safe on its own.
+  if (String(order.buyerId) !== String(buyerId)) throw new OrderNotFoundError();
+  if (order.status !== "created" && order.status !== "payment_held") {
+    throw new TransitionNotAllowedError(order.status, "cancelled", "Order can only be cancelled before it ships");
+  }
+  return cancelAndRestore(order, "buyer", buyerId, "Cancelled by buyer before shipment");
 }
