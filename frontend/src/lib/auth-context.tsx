@@ -11,7 +11,7 @@ interface AuthContextValue {
   mfaRequired: boolean;
   mfaVerified: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, applyAsSeller?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   verifyMfa: (code: string) => Promise<void>;
   verifyRecoveryCode: (code: string) => Promise<void>;
@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const register = async (email: string, password: string) => {
-    await api.post<{ message: string }>("/auth/register", { email, password });
+  const register = async (email: string, password: string, applyAsSeller = false) => {
+    await api.post<{ message: string }>("/auth/register", { email, password, applyAsSeller });
   };
 
   const logout = async () => {

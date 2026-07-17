@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [applyAsSeller, setApplyAsSeller] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -20,10 +21,10 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     if (password !== confirm) { setError("Passwords do not match"); return; }
-    if (password.length < 12) { setError("Password must be at least 12 characters"); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     setSubmitting(true);
     try {
-      await register(email, password);
+      await register(email, password, applyAsSeller);
       router.push("/login?registered=1");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "Registration failed");
@@ -45,12 +46,19 @@ export default function RegisterPage() {
             </div>
             <div>
               <label htmlFor="reg-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input id="reg-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Min. 12 characters" required minLength={12} autoComplete="new-password" />
+              <input id="reg-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Min. 8 characters" required minLength={8} autoComplete="new-password" />
             </div>
             <div>
               <label htmlFor="reg-confirm" className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
               <input id="reg-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Re-enter password" required autoComplete="new-password" />
             </div>
+            <label className="flex items-start gap-3 rounded-xl border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition-colors">
+              <input type="checkbox" checked={applyAsSeller} onChange={(e) => setApplyAsSeller(e.target.checked)} className="mt-0.5 w-4 h-4 accent-indigo-600" />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">Register as a seller</span>
+                <span className="block text-xs text-gray-500 mt-0.5">Request a seller account. You&apos;ll join as a buyer and an admin will review your application before you can list products.</span>
+              </span>
+            </label>
             {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
             <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
               {submitting ? "Creating account..." : "Create Account"}

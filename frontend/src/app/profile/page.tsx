@@ -3,7 +3,7 @@
 import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { User, Save, Download, Shield, Mail, BadgeCheck } from "lucide-react";
+import { User, Save, Download, Shield, Mail, BadgeCheck, Store } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { UserProfile } from "@/types";
@@ -15,6 +15,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
@@ -32,6 +33,19 @@ export default function ProfilePage() {
       toast.error(err instanceof ApiError ? err.message : "Failed to update");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleApplyAsSeller = async () => {
+    setApplying(true);
+    try {
+      const res = await api.post<{ sellerApplicationStatus: UserProfile["sellerApplicationStatus"] }>("/seller/apply");
+      setProfile((p) => (p ? { ...p, sellerApplicationStatus: res.sellerApplicationStatus } : p));
+      toast.success("Seller application submitted — an admin will review it");
+    } catch (err: unknown) {
+      toast.error(err instanceof ApiError ? err.message : "Failed to submit application");
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -90,6 +104,37 @@ export default function ProfilePage() {
             </button>
           </div>
         </form>
+
+        {/* Seller section — role-aware */}
+        {profile.role !== "admin" && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Store className="w-4 h-4 text-indigo-600" />
+              <h2 className="font-semibold text-gray-900">Selling</h2>
+            </div>
+            {profile.role === "seller" ? (
+              <div className="flex items-center justify-between py-2">
+                <div><p className="text-sm font-medium text-gray-900">You&apos;re a seller</p><p className="text-xs text-gray-500">Create listings and manage your orders from the seller dashboard.</p></div>
+                <a href="/seller" className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap">Seller Dashboard</a>
+              </div>
+            ) : profile.sellerApplicationStatus === "pending" ? (
+              <div className="flex items-center justify-between py-2">
+                <div><p className="text-sm font-medium text-gray-900">Application under review</p><p className="text-xs text-gray-500">An admin will approve or decline your seller request soon.</p></div>
+                <span className="text-xs bg-yellow-100 text-yellow-700 font-medium px-3 py-1.5 rounded-full whitespace-nowrap">Pending</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Want to sell on BazaarHub?</p>
+                  <p className="text-xs text-gray-500">{profile.sellerApplicationStatus === "rejected" ? "Your previous request was declined. You can apply again." : "Request a seller account. An admin will review your application."}</p>
+                </div>
+                <button onClick={handleApplyAsSeller} disabled={applying} className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+                  {applying ? "Submitting..." : profile.sellerApplicationStatus === "rejected" ? "Apply Again" : "Apply to Sell"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Security section */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mt-6">

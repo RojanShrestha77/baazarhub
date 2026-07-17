@@ -7,6 +7,7 @@ export interface UserProfile {
   email: string;
   role: "buyer" | "seller" | "admin";
   sellerTier: "unverified" | "verified" | "trusted";
+  sellerApplicationStatus: "none" | "pending" | "approved" | "rejected";
   mfaEnabled: boolean;
 }
 

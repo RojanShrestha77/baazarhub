@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Users, Shield, ClipboardList, Search } from "lucide-react";
+import { Users, Shield, ClipboardList, Search, Store } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
-type AdminTab = "users" | "verifications" | "logs";
+type AdminTab = "users" | "applications" | "verifications" | "logs";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -22,13 +22,14 @@ export default function AdminPage() {
     if (!user || user.role !== "admin") { router.push("/"); return; }
     const fetchAll = async () => {
       try {
-        const [users, verifications, logs] = await Promise.all([
+        const [users, applications, verifications, logs] = await Promise.all([
           api.get<any[]>("/admin/users").catch(() => []),
+          api.get<any[]>("/admin/seller-applications").catch(() => []),
           api.get<any[]>("/verification/requests").catch(() => []),
           api.get<any[]>("/admin/logs?limit=50").catch(() => []),
         ]);
-        setData({ users, verifications, logs });
-      } catch { setData({ users: [], verifications: [], logs: [] }); }
+        setData({ users, applications, verifications, logs });
+      } catch { setData({ users: [], applications: [], verifications: [], logs: [] }); }
       finally { setLoading(false); }
     };
     fetchAll();
@@ -48,6 +49,18 @@ export default function AdminPage() {
     catch { toast.error("Failed"); }
   };
 
+  const decideApplication = async (userId: string, decision: "approve" | "reject") => {
+    try {
+      await api.post(`/admin/seller-applications/${userId}/${decision}`, {});
+      const [applications, users] = await Promise.all([
+        api.get<any[]>("/admin/seller-applications"),
+        api.get<any[]>("/admin/users"),
+      ]);
+      setData({ ...data, applications, users });
+      toast.success(decision === "approve" ? "Seller approved" : "Application declined");
+    } catch { toast.error("Failed"); }
+  };
+
   const updateVerification = async (verificationId: string, status: string) => {
     try {
       const endpoint = status === "approved" ? "approve" : "reject";
@@ -59,6 +72,7 @@ export default function AdminPage() {
 
   const tabs: { key: AdminTab; label: string; icon: any; count?: number }[] = [
     { key: "users", label: "Users", icon: Users, count: data.users.length },
+    { key: "applications", label: "Seller Applications", icon: Store, count: data.applications.length },
     { key: "verifications", label: "Verifications", icon: Shield, count: data.verifications.length },
     { key: "logs", label: "Audit Logs", icon: ClipboardList },
   ];
@@ -112,6 +126,30 @@ export default function AdminPage() {
               </table>
               {filteredUsers.length === 0 && <p className="text-center py-8 text-gray-400 text-sm">No users match your search.</p>}
             </div>
+          </div>
+        )}
+
+        {/* Seller Applications tab */}
+        {tab === "applications" && (
+          <div className="space-y-3">
+            {data.applications.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+                <Store className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+                <p className="text-gray-500">No pending seller applications.</p>
+              </div>
+            ) : data.applications.map((a: any) => (
+              <div key={a._id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center"><Store className="w-5 h-5 text-indigo-500" /></div>
+                  <div className="min-w-0"><p className="font-medium text-gray-900 truncate">{a.email}</p><p className="text-xs text-gray-400 mt-0.5">Requested seller access</p></div>
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
+                </div>
+                <div className="flex gap-2 ml-4">
+                  <button onClick={() => decideApplication(a._id, "approve")} className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">Approve</button>
+                  <button onClick={() => decideApplication(a._id, "reject")} className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition-colors">Decline</button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

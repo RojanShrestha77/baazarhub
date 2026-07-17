@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useEffect, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { Category } from "@/types";
+import type { Category, SerializedListing } from "@/types";
 import toast from "react-hot-toast";
 
-export default function NewListingPage() {
+export default function EditListingPage() {
   const router = useRouter();
+  const params = useParams();
+  const id = params.id as string;
   const { user, loading } = useAuth();
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
@@ -18,6 +21,9 @@ export default function NewListingPage() {
   const [quantity, setQuantity] = useState("1");
   const [categories, setCategories] = useState<Category[]>([]);
   const [images, setImages] = useState<File[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [status, setStatus] = useState<string>("draft");
+  const [fetching, setFetching] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -25,30 +31,47 @@ export default function NewListingPage() {
   }, []);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) { router.push("/login"); return; }
-    if (user.role !== "seller") { router.push("/profile"); return; }
+    if (!loading && !user) { router.push("/login"); return; }
   }, [user, loading, router]);
 
-  if (loading || !user || user.role !== "seller") return null;
+  useEffect(() => {
+    if (!id) return;
+    api.get<SerializedListing>(`/listings/${id}`)
+      .then((l) => {
+        setTitle(l.title);
+        setDescription(l.description || "");
+        setPrice((l.priceMinorUnits / 100).toString());
+        setCategory(typeof l.category === "string" ? l.category : String(l.category));
+        setQuantity(String(l.quantity));
+        setStatus(l.status);
+        setExistingImages(l.images || []);
+      })
+      .catch(() => { toast.error("Listing not found"); router.push("/seller"); })
+      .finally(() => setFetching(false));
+  }, [id, router]);
+
+  if (loading || !user || fetching) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" role="status"><span className="sr-only">Loading...</span></div></div>;
+
+  const editable = status === "draft" || status === "active";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!editable) { toast.error("Sold or withdrawn listings can't be edited"); return; }
     setSubmitting(true);
     try {
       const priceMinorUnits = Math.round(parseFloat(price) * 100);
-      const data = await api.post<{ id: string }>("/listings", {
+      await api.patch(`/listings/${id}`, {
         title, description, priceMinorUnits, category, quantity: parseInt(quantity),
       });
       if (images.length > 0) {
         const form = new FormData();
         for (const img of images) form.append("images", img);
-        await api.upload(`/listings/${data.id}/images`, form);
+        await api.upload(`/listings/${id}/images`, form);
       }
-      toast.success("Listing created!");
-      router.push(`/listings/${data.id}`);
+      toast.success("Listing updated");
+      router.push("/seller");
     } catch (err: unknown) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to create");
+      toast.error(err instanceof ApiError ? err.message : "Failed to update");
     } finally {
       setSubmitting(false);
     }
@@ -57,7 +80,8 @@ export default function NewListingPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Create Listing</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Edit Listing</h1>
+        <p className="text-sm text-gray-500 mb-8 capitalize">Status: {status}</p>
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 p-8 space-y-6 shadow-sm">
           <div>
             <label htmlFor="l-title" className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -85,12 +109,15 @@ export default function NewListingPage() {
             </div>
           </div>
           <div>
-            <label htmlFor="l-images" className="block text-sm font-medium text-gray-700 mb-1">Images (up to 6)</label>
+            <label htmlFor="l-images" className="block text-sm font-medium text-gray-700 mb-1">Add Images {existingImages.length > 0 && <span className="text-gray-400 font-normal">({existingImages.length} already uploaded)</span>}</label>
             <input id="l-images" type="file" multiple accept="image/*" onChange={(e) => setImages(Array.from(e.target.files || []).slice(0, 6))} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
           </div>
-          <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm">
-            {submitting ? "Creating..." : "Create Listing"}
-          </button>
+          <div className="flex gap-3">
+            <button type="submit" disabled={submitting} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm">
+              {submitting ? "Saving..." : "Save Changes"}
+            </button>
+            <button type="button" onClick={() => router.push("/seller")} className="px-6 border border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
+          </div>
         </form>
       </motion.div>
     </div>
