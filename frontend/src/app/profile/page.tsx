@@ -2,8 +2,9 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { User, Save, Download, Shield, Mail, BadgeCheck, Store } from "lucide-react";
+import { User, Save, Download, Shield, Mail, BadgeCheck, Store, MapPin, ChevronRight, MailWarning, AlertTriangle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { UserProfile } from "@/types";
@@ -11,11 +12,15 @@ import toast from "react-hot-toast";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
@@ -49,6 +54,35 @@ export default function ProfilePage() {
     }
   };
 
+  const handleResendVerification = async () => {
+    setResending(true);
+    try {
+      await api.post("/auth/email/verify/resend");
+      toast.success("Verification email sent — check your inbox");
+    } catch {
+      toast.error("Could not send verification email");
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: FormEvent) => {
+    e.preventDefault();
+    setDeleting(true);
+    try {
+      await api.delete("/profiles/me", { body: { currentPassword: deletePassword } });
+      toast.success("Your account has been deleted");
+      await logout();
+      router.push("/");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) toast.error("Resolve orders that are still in progress first");
+      else if (err instanceof ApiError && err.status === 401) toast.error("Incorrect password");
+      else toast.error("Could not delete account");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       const data = await api.get<{ data: string }>("/profiles/me/export");
@@ -66,6 +100,20 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        {/* Email verification banner */}
+        {profile.emailVerified === false && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 flex items-start gap-3">
+            <MailWarning className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900">Verify your email address</p>
+              <p className="text-xs text-amber-700 mt-0.5">Buying, selling, and messaging are locked until you confirm your email.</p>
+            </div>
+            <button onClick={handleResendVerification} disabled={resending} className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+              {resending ? "Sending…" : "Resend email"}
+            </button>
+          </div>
+        )}
+
         {/* Profile header */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mb-6">
           <div className="flex items-center gap-5">
@@ -153,6 +201,43 @@ export default function ProfilePage() {
               <a href="/password/change" className="text-xs border border-gray-200 text-gray-700 px-4 py-1.5 rounded-lg font-medium hover:bg-gray-50 transition-colors">Change</a>
             </div>
           </div>
+        </div>
+
+        {/* Shipping addresses */}
+        <Link href="/addresses" className="block bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mt-6 hover:border-indigo-100 hover:shadow-md transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-indigo-600" />
+              <div>
+                <h2 className="font-semibold text-gray-900">Shipping Addresses</h2>
+                <p className="text-xs text-gray-500">Manage where your orders are delivered</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-300" />
+          </div>
+        </Link>
+
+        {/* Danger zone */}
+        <div className="bg-white rounded-2xl border border-red-100 p-6 shadow-sm mt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <h2 className="font-semibold text-gray-900">Delete Account</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">Permanently close your account. Your personal data is erased; this cannot be undone. You must resolve any in-progress orders first.</p>
+          {!showDelete ? (
+            <button onClick={() => setShowDelete(true)} className="text-xs border border-red-200 text-red-600 px-4 py-1.5 rounded-lg font-medium hover:bg-red-50 transition-colors">Delete my account</button>
+          ) : (
+            <form onSubmit={handleDeleteAccount} className="space-y-3">
+              <div>
+                <label htmlFor="del-pw" className="block text-xs font-medium text-gray-600 mb-1">Confirm your password to continue</label>
+                <input id="del-pw" type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} required className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 outline-none" placeholder="Current password" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="submit" disabled={deleting || !deletePassword} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors">{deleting ? "Deleting…" : "Permanently delete"}</button>
+                <button type="button" onClick={() => { setShowDelete(false); setDeletePassword(""); }} className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+              </div>
+            </form>
+          )}
         </div>
       </motion.div>
     </div>
