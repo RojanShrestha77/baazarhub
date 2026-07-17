@@ -17,7 +17,10 @@ const config: Config = {
   testMatch: ["**/tests/**/*.test.ts"],
   testPathIgnorePatterns: ["/node_modules/", "/tests/timing/"],
   setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
-  testTimeout: 20000,
+  // 30s: the suite runs a single shared mongod under --runInBand and several
+  // suites do real argon2id hashing, so heavily-loaded runs need headroom over
+  // the default 5s to avoid load-induced timeouts on slower machines.
+  testTimeout: 30000,
 };
 
 export default config;
