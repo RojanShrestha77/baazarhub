@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
-import { UserRole, SellerTier, TotpSecret, LoginFailure } from "../types/user.type";
+import { UserRole, SellerTier, SellerApplicationStatus, TotpSecret, LoginFailure } from "../types/user.type";
 
 // TOTP secret is never stored in plaintext (decision #4) — AES-256-GCM
 // ciphertext + IV + auth tag, encrypted/decrypted by the service layer
@@ -31,14 +31,18 @@ export interface IUser extends Document {
   email: string;
   passwordHash: string;
   passwordChangedAt?: Date;
+  emailVerified: boolean;
+  emailVerifiedAt?: Date;
   role: UserRole;
   sellerTier: SellerTier;
+  sellerApplicationStatus: SellerApplicationStatus;
   mfaEnabled: boolean;
   totpSecret?: TotpSecret;
   mfaEnrolledAt?: Date;
   totpLastUsedStep?: number;
   loginFailure: LoginFailure;
   passwordHistory: string[];
+  deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,6 +58,12 @@ const userSchema = new Schema<IUser>(
     // reset both touch this, but revoke sessions differently).
     passwordChangedAt: { type: Date },
 
+    // Email ownership confirmation. Never client-settable — flipped true only
+    // by consuming a verification token (email-verification.service). Sensitive
+    // actions (checkout, seller apply, listing create) are gated on this.
+    emailVerified: { type: Boolean, default: false },
+    emailVerifiedAt: { type: Date },
+
     // Mass-assignment targets (threat model, Tampering) — role and tier
     // must NEVER be settable from a request body. Enforced at two layers:
     // (1) zod DTOs whitelist only the allowed fields, (2) every create/
@@ -64,6 +74,12 @@ const userSchema = new Schema<IUser>(
     // Seller verification tier — same mass-assignment reasoning as role.
     // Only an admin-only, MFA-verified code path can ever change this.
     sellerTier: { type: String, enum: ["unverified", "verified", "trusted"], default: "unverified" },
+
+    // Seller onboarding request state. A buyer may only ever move this to
+    // "pending" (via register intent or POST /seller/apply). "approved" is
+    // reachable ONLY through the admin approval code path, which also sets
+    // role → "seller". Never settable from a request body.
+    sellerApplicationStatus: { type: String, enum: ["none", "pending", "approved", "rejected"], default: "none" },
 
     mfaEnabled: { type: Boolean, default: false },
     totpSecret: { type: totpSecretSchema, default: undefined },
@@ -77,6 +93,12 @@ const userSchema = new Schema<IUser>(
 
     // Reuse prevention: hashes of the last N passwords, rotated on change.
     passwordHistory: { type: [String], default: [] },
+
+    // Soft-delete / erasure marker. Set when a user deletes their account: PII
+    // is scrubbed and the email tombstoned, but the row is retained so orders,
+    // escrow events, and audit logs keep referential integrity. A non-null
+    // value means the account is closed and can never authenticate again.
+    deletedAt: { type: Date },
   },
   { timestamps: true },
 );

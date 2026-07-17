@@ -8,6 +8,10 @@ export const ORDER_STATUSES = [
   "released",
   "disputed",
   "refunded",
+  // Terminal state for a checkout whose payment never completed. The sweep
+  // (expireStaleReservations) moves stale `created` orders here and returns
+  // their reserved stock to the listing.
+  "cancelled",
 ] as const;
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
@@ -33,6 +37,7 @@ export interface IOrder extends Document {
   disputedAt?: Date;
   releasedAt?: Date;
   refundedAt?: Date;
+  cancelledAt?: Date;
   disputeResolvedBy?: mongoose.Types.ObjectId;
   disputeResolution?: "released" | "refunded";
   createdAt: Date;
@@ -63,6 +68,7 @@ const orderSchema = new Schema<IOrder>(
     disputedAt: { type: Date },
     releasedAt: { type: Date },
     refundedAt: { type: Date },
+    cancelledAt: { type: Date },
     disputeResolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     disputeResolution: { type: String, enum: ["released", "refunded"] },
   },
