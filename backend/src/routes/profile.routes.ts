@@ -3,7 +3,7 @@ import { requireSession } from "../middlewares/authz";
 import { requireCsrfToken } from "../lib/csrf";
 import { exportLimiter, profileReadLimiter, profileWriteLimiter, avatarUploadLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateObjectIdParam } from "../middlewares/validate";
-import { profileUpdateSchema } from "../validators/profile.schema";
+import { profileUpdateSchema, accountDeleteSchema } from "../validators/profile.schema";
 import { receiveAvatarUpload, validateAndStoreAvatar } from "../middlewares/avatar-upload";
 import { ProfileController } from "../controllers/profile.controller";
 
@@ -19,6 +19,9 @@ router.get("/me/avatar", [requireSession], profileReadLimiter, profile.getMyAvat
 // ── Data export / import ──
 router.get("/me/export", [requireSession], exportLimiter, profile.exportMe);
 router.post("/me/import", [requireSession], requireCsrfToken, profileWriteLimiter, validateBody(profileUpdateSchema), profile.importMe);
+
+// ── Account deletion / erasure (re-confirms password) ──
+router.delete("/me", [requireSession], requireCsrfToken, profileWriteLimiter, validateBody(accountDeleteSchema), profile.deleteMe);
 
 // ── Public profile viewing ──
 router.get("/:id", [requireSession], profileReadLimiter, validateObjectIdParam("id"), profile.getPublic);

@@ -9,6 +9,12 @@ import {
 } from "../services/profile.service";
 import { resolveAvatarPath } from "../middlewares/avatar-upload";
 import { UserModel } from "../models/user.model";
+import { verifyPassword } from "../services/password.service";
+import { deleteAccount, ActiveOrdersExistError } from "../services/account-deletion.service";
+import { getSellerRating } from "../services/review.service";
+import { clearSessionCookie } from "../lib/cookies";
+import { logEvent } from "../services/audit.service";
+import { AccountDeleteDto } from "../validators/profile.schema";
 
 export class ProfileController {
   private streamAvatar(storedFilename: string | null, res: Response, next: NextFunction) {
@@ -98,6 +104,26 @@ export class ProfileController {
     }
   };
 
+  // ── Account deletion / erasure (self-only) ──
+  deleteMe = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { currentPassword } = req.validatedBody as AccountDeleteDto;
+      const valid = await verifyPassword(req.user!.passwordHash, currentPassword);
+      if (!valid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+      await deleteAccount(req.user!._id);
+      clearSessionCookie(res);
+      logEvent({ actor: req.user!._id, action: "account_delete", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      return res.status(204).end();
+    } catch (err) {
+      if (err instanceof ActiveOrdersExistError) {
+        return res.status(409).json({ error: "Resolve orders that are still in progress before deleting your account" });
+      }
+      next(err);
+    }
+  };
+
   // ── Public profile viewing — serializePublicProfile never includes
   // sensitive fields, so this needs no ownership gate. ──
   getPublic = async (req: Request, res: Response, next: NextFunction) => {
@@ -107,7 +133,14 @@ export class ProfileController {
         return res.status(404).json({ error: "Not found" });
       }
       const profile = await getOrCreateProfile(user._id);
-      return res.status(200).json(serializePublicProfile(profile));
+      const base = serializePublicProfile(profile);
+      // Sellers carry a public rating badge aggregated from verified-purchase
+      // reviews across all their listings. Buyers have no such field.
+      if (user.role === "seller") {
+        const sellerRating = await getSellerRating(user._id);
+        return res.status(200).json({ ...base, sellerRating });
+      }
+      return res.status(200).json(base);
     } catch (err) {
       next(err);
     }

@@ -12,3 +12,9 @@ export const profileUpdateSchema = z
   .strict();
 
 export type ProfileUpdateDto = z.infer<typeof profileUpdateSchema>;
+
+// Account deletion re-confirms the current password: an irreversible action
+// must not be triggerable by a hijacked session alone.
+export const accountDeleteSchema = z.object({ currentPassword: z.string().min(1) }).strict();
+
+export type AccountDeleteDto = z.infer<typeof accountDeleteSchema>;
