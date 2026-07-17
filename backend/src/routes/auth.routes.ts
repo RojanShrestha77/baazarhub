@@ -8,6 +8,8 @@ import {
   recoveryCodeLimiter,
   passwordResetLimiter,
   passwordChangeLimiter,
+  emailVerifyLimiter,
+  emailVerifyResendLimiter,
 } from "../middlewares/rate-limiters";
 import { validateBody } from "../middlewares/validate";
 import { requireCaptcha } from "../middlewares/captcha";
@@ -24,6 +26,7 @@ import {
   passwordResetConfirmSchema,
   magicLinkRequestSchema,
   magicLinkVerifySchema,
+  emailVerifySchema,
 } from "../validators/auth.schema";
 import { AuthController } from "../controllers/auth.controller";
 
@@ -66,6 +69,11 @@ router.post(
 // Reset flow — token itself is the credential, so PUBLIC.
 router.post("/password/reset/request", PUBLIC, passwordResetLimiter, validateBody(passwordResetRequestSchema), auth.passwordResetRequest);
 router.post("/password/reset/confirm", PUBLIC, passwordResetLimiter, validateBody(passwordResetConfirmSchema), auth.passwordResetConfirm);
+
+// Email verification. Consume is PUBLIC (token is the credential); resend
+// requires a session (acts only on the caller's own account).
+router.post("/email/verify", PUBLIC, emailVerifyLimiter, validateBody(emailVerifySchema), auth.verifyEmail);
+router.post("/email/verify/resend", [requireSession], requireCsrfToken, emailVerifyResendLimiter, auth.resendEmailVerification);
 
 // Magic link (passwordless). NOTE: the original JS routes had no rate
 // limiter here; kept identical for now. Adding magicLinkLimiter is a

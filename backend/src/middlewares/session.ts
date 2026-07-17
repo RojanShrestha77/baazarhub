@@ -73,6 +73,21 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
   next();
 }
 
+// Gate for sensitive actions that require a confirmed email address (checkout,
+// seller application, listing creation). Runs AFTER an authz gate has loaded
+// the session, so req.user is populated. Not itself an authz gate — it layers
+// on top of one, the same way requireCsrfToken does.
+export function requireEmailVerified(req: Request, res: Response, next: NextFunction) {
+  if (!req.session || !req.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  if (!req.user.emailVerified) {
+    logAuthzFail(req, "require_email_verified");
+    return res.status(403).json({ error: "Email verification required" });
+  }
+  next();
+}
+
 export function requireMfaVerified(req: Request, res: Response, next: NextFunction) {
   if (!req.session) {
     logAuthzFail(req, "require_mfa_no_session");

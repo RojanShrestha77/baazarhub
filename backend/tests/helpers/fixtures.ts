@@ -25,6 +25,10 @@ export async function createUser(overrides: Partial<IUser> & { password?: string
     role: overrides.role || "buyer",
     sellerTier: overrides.sellerTier || "unverified",
     mfaEnabled: overrides.mfaEnabled ?? false,
+    // Default to a verified email so existing fixtures represent active users
+    // that pass the requireEmailVerified gate. Tests for the unverified path
+    // pass emailVerified: false explicitly.
+    emailVerified: overrides.emailVerified ?? true,
   });
 }
 

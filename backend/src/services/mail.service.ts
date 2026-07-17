@@ -36,6 +36,18 @@ export function sendExistingAccountNotice(email: string): void {
   });
 }
 
+export function sendEmailVerification(email: string, token: string): void {
+  sendMailAsync({
+    to: email,
+    subject: "Verify your BazaarHub email address",
+    text:
+      `Use this token to verify your email address: ${token}\n\n` +
+      "This confirms you own this address and unlocks buying and selling. " +
+      "The token is single-use and expires in 24 hours. If you didn't create " +
+      "a BazaarHub account, you can ignore this email.",
+  });
+}
+
 export function sendPasswordResetEmail(email: string, resetToken: string): void {
   sendMailAsync({
     to: email,

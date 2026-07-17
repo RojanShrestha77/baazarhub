@@ -9,7 +9,10 @@ const password = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
 const email = z.string().trim().toLowerCase().email().max(254);
 const captchaField = z.string().optional();
 
-export const registerSchema = z.object({ email, password, captchaToken: captchaField });
+// applyAsSeller only expresses INTENT to request seller status — it can
+// never grant a role. The controller maps true → sellerApplicationStatus
+// "pending"; role always starts "buyer".
+export const registerSchema = z.object({ email, password, captchaToken: captchaField, applyAsSeller: z.boolean().optional() });
 
 // Deliberately NOT validating "does this user exist" — that's the
 // enumeration-sensitive path (decision #7) handled in the route's
@@ -49,6 +52,8 @@ export const magicLinkRequestSchema = z.object({
 
 export const magicLinkVerifySchema = z.object({ token: z.string().min(1) });
 
+export const emailVerifySchema = z.object({ token: z.string().min(1) });
+
 // Inferred DTO types for typed handler access to req.validatedBody.
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
@@ -59,3 +64,4 @@ export type PasswordResetRequestDto = z.infer<typeof passwordResetRequestSchema>
 export type PasswordResetConfirmDto = z.infer<typeof passwordResetConfirmSchema>;
 export type MagicLinkRequestDto = z.infer<typeof magicLinkRequestSchema>;
 export type MagicLinkVerifyDto = z.infer<typeof magicLinkVerifySchema>;
+export type EmailVerifyDto = z.infer<typeof emailVerifySchema>;

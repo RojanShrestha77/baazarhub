@@ -16,9 +16,12 @@ import profileRoutes from "./routes/profile.routes";
 import listingRoutes from "./routes/listing.routes";
 import categoryRoutes from "./routes/category.routes";
 import cartRoutes from "./routes/cart.routes";
+import wishlistRoutes from "./routes/wishlist.routes";
+import messagingRoutes from "./routes/messaging.routes";
 import escrowRoutes from "./routes/escrow.routes";
 import escrowWebhookRoutes from "./routes/escrow-webhook.routes";
 import verificationRoutes from "./routes/verification.routes";
+import sellerRoutes from "./routes/seller.routes";
 
 // Configured app, exported without connecting to Mongo or calling listen()
 // so tests (supertest) can exercise it directly. index.ts is the only place
@@ -30,6 +33,12 @@ const mount = (r: AuthzRouter): RequestHandler => r as unknown as RequestHandler
 
 export function createApp() {
   const app = express();
+
+  // Trust exactly ONE proxy hop (the frontend nginx). This makes req.ip the
+  // real client IP from the last X-Forwarded-For entry, which rate limiting
+  // and audit logging depend on. Deliberately `1`, never `true`: trusting all
+  // hops would let a client spoof X-Forwarded-For and forge req.ip again.
+  app.set("trust proxy", 1);
 
   // Security headers — explicit CSP directives mirroring the frontend nginx
   // policy so there's one policy to reason about, not two that could drift.
@@ -50,7 +59,26 @@ export function createApp() {
     }),
   );
 
-  app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+  // Credentialed CORS. Allow the explicitly configured origin, plus ANY
+  // localhost / 127.0.0.1 port in development so the frontend works no matter
+  // which port Next.js picks. Never a wildcard (invalid with credentials).
+  // Requests with no Origin (curl, health checks, server-to-server) pass.
+  // IMPORTANT: return callback(null, false) — not an Error — for disallowed
+  // origins, so the request still completes (without CORS headers) instead of
+  // hitting the 500 error handler, which would surface as a confusing CORS
+  // failure in the browser.
+  const isLocalhost = (origin: string) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || origin === CORS_ORIGIN || isLocalhost(origin)) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
+      credentials: true,
+    }),
+  );
 
   // Redacting morgan — sensitive query params/headers masked before logging.
   app.use(
@@ -79,8 +107,11 @@ export function createApp() {
   app.use("/api/listings", mount(listingRoutes));
   app.use("/api/categories", mount(categoryRoutes));
   app.use("/api/cart", mount(cartRoutes));
+  app.use("/api/wishlist", mount(wishlistRoutes));
+  app.use("/api/conversations", mount(messagingRoutes));
   app.use("/api/escrow", mount(escrowRoutes));
   app.use("/api/verification", mount(verificationRoutes));
+  app.use("/api/seller", mount(sellerRoutes));
 
   // Wrap console.error to redact sensitive data.
   wrapConsoleError();

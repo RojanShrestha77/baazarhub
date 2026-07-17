@@ -15,6 +15,7 @@ import {
   sendRecoveryCodeUsedNotice,
   sendPasswordResetEmail,
   sendMagicLinkEmail,
+  sendEmailVerification,
 } from "../services/mail.service";
 import {
   createSession,
@@ -41,6 +42,11 @@ import {
 } from "../services/password-reset.service";
 import { createMagicLinkToken, consumeMagicLinkToken } from "../services/magic-link.service";
 import {
+  createEmailVerificationToken,
+  consumeEmailVerificationToken,
+  invalidateVerificationTokensForUser,
+} from "../services/email-verification.service";
+import {
   RegisterDto,
   LoginDto,
   MfaVerifyDto,
@@ -50,6 +56,7 @@ import {
   PasswordResetConfirmDto,
   MagicLinkRequestDto,
   MagicLinkVerifyDto,
+  EmailVerifyDto,
 } from "../validators/auth.schema";
 
 const REGISTER_RESPONSE = {
@@ -65,7 +72,7 @@ export class AuthController {
   // ── Registration ──
   register = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password } = req.validatedBody as RegisterDto;
+      const { email, password, applyAsSeller } = req.validatedBody as RegisterDto;
 
       // Hash unconditionally before branching on existence (decision #7
       // timing parity — closes the dominant argon2id-cost signal).
@@ -78,9 +85,15 @@ export class AuthController {
       } else {
         try {
           // Explicit allow-list, never a req.body spread — role/sellerTier
-          // are never client-settable.
-          await UserModel.create({ email, passwordHash });
+          // are never client-settable. applyAsSeller only ever sets the
+          // application to "pending"; the role itself stays "buyer" until an
+          // admin approves.
+          const created = await UserModel.create({ email, passwordHash, sellerApplicationStatus: applyAsSeller ? "pending" : "none" });
           sendRegistrationConfirmation(email);
+          // Issue an email-ownership verification token. Fire-and-forget send,
+          // same enumeration-safety reasoning as every other auth email.
+          const verifyToken = await createEmailVerificationToken(created._id);
+          sendEmailVerification(email, verifyToken);
           logEvent({ action: "register", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
         } catch (err) {
           // Concurrent registration loser hits the unique index (E11000);
@@ -106,7 +119,10 @@ export class AuthController {
         : await verifyAgainstDummyHash(password).then(() => false);
 
       const backoffActive = user ? isInBackoff(user) : false;
-      const success = passwordValid && !backoffActive;
+      // A deleted (tombstoned) account can never authenticate. The email is
+      // already anonymized so this rarely triggers, but it's cheap insurance
+      // and keeps timing parity (verifyPassword still ran above).
+      const success = passwordValid && !backoffActive && !user?.deletedAt;
 
       if (!success) {
         // NOT awaited — a DB save only happening for existing users would
@@ -180,6 +196,18 @@ export class AuthController {
   mfaEnrol = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = req.user!;
+
+      // Re-enrolment hardening: overwriting totpSecret + regenerating recovery
+      // codes is a credential change. A first-time enroller has mfaVerified=true
+      // (no MFA enrolled yet), so this never blocks them; but once MFA is
+      // enabled, a stolen pre-MFA session (mfaVerified=false) must NOT be able
+      // to silently replace the victim's authenticator. Force a fresh MFA
+      // verification first.
+      if (user.mfaEnabled && !req.session!.mfaVerified) {
+        logEvent({ actor: user._id, action: "mfa_enrol", outcome: "failure", ip: req.ip, userAgent: req.get("user-agent"), metadata: { reason: "reenrol_requires_mfa" } }).catch(() => {});
+        return res.status(403).json({ error: "MFA verification required to re-enrol" });
+      }
+
       const secret = generateTotpSecret();
 
       user.totpSecret = encryptTotpSecret(secret);
@@ -378,6 +406,56 @@ export class AuthController {
 
       logEvent({ actor: user._id, action: "magic_link_verify", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
       return res.status(200).json({ mfaRequired: user.mfaEnabled });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Email verification (token consume) ──
+  // PUBLIC: the token itself is the credential. Generic response either way so
+  // a bad/expired token can't be distinguished from a foreign one.
+  verifyEmail = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token } = req.validatedBody as EmailVerifyDto;
+      const consumed = await consumeEmailVerificationToken(token);
+      if (!consumed) {
+        return res.status(400).json({ error: "Invalid or expired verification token" });
+      }
+
+      const user = await UserModel.findById(consumed.userId);
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired verification token" });
+      }
+
+      if (!user.emailVerified) {
+        user.emailVerified = true;
+        user.emailVerifiedAt = new Date();
+        await user.save();
+      }
+      // Retire any other outstanding tokens for this user.
+      await invalidateVerificationTokensForUser(user._id);
+
+      logEvent({ actor: user._id, action: "email_verify", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      return res.status(200).json({ emailVerified: true });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Resend verification (authenticated) ──
+  // Issues a fresh token to the logged-in user's own address. No-op response if
+  // already verified — never reveals another account's state (it only ever acts
+  // on req.user).
+  resendEmailVerification = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = req.user!;
+      if (!user.emailVerified) {
+        await invalidateVerificationTokensForUser(user._id);
+        const token = await createEmailVerificationToken(user._id);
+        sendEmailVerification(user.email, token);
+        logEvent({ actor: user._id, action: "email_verify_resend", outcome: "success", ip: req.ip, userAgent: req.get("user-agent") }).catch(() => {});
+      }
+      return res.status(200).json({ message: "If your email is unverified, a new verification link has been sent." });
     } catch (err) {
       next(err);
     }
