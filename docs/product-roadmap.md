@@ -8,6 +8,34 @@ Audience: product, engineering, and security reviewers for a coursework submissi
 
 ---
 
+## 0. Implementation Status (updated 2026-07-17)
+
+Backend modules delivered so far, each with its own passing test suite (315 tests total, 38 suites):
+
+| Feature | Status | Key endpoints |
+|---|---|---|
+| Auth, MFA, RBAC, sessions, audit logging | ✅ Done | `/api/auth/*` |
+| **Email verification + sensitive-action gate** | ✅ Done | `POST /api/auth/email/verify`, resend |
+| Profiles, data export | ✅ Done | `/api/profiles/*` |
+| **Account deletion / erasure** | ✅ Done | `DELETE /api/profiles/me` |
+| Listings, categories, images, search | ✅ Done | `/api/listings/*` |
+| Cart, checkout, escrow, disputes | ✅ Done | `/api/cart`, `/api/escrow/*` |
+| **Buyer order cancellation** | ✅ Done | `POST /api/escrow/orders/:id/cancel` |
+| **Reservation expiry sweep + webhook idempotency** | ✅ Done | (internal) |
+| Seller verification / application | ✅ Done | `/api/seller/*`, `/api/verification/*` |
+| Admin dashboard, dispute resolution | ✅ Done | `/api/admin/*` |
+| **Reviews & ratings (verified-purchase)** | ✅ Done | `/api/listings/:id/reviews` |
+| **Seller rating badge** | ✅ Done | on public profile |
+| **Wishlist** | ✅ Done | `/api/wishlist/*` |
+| **Buyer–seller messaging** | ✅ Done | `/api/conversations/*` |
+| **Buyer address book** | ✅ Done | `/api/addresses/*` |
+
+Security fixes from the Phase-4 re-review (SA-05 MFA takeover, SA-06 X-Forwarded-For spoof, SA-07 stock leak, SA-08 webhook idempotency) are all fixed and regression-tested — see `pentest-report.md`.
+
+**Not yet built** (see phases below): notifications, shipping/tracking, returns/refunds (RMA), coupons/promotions, seller analytics/payouts, CMS pages, support tickets, plus all Phase-3 and enterprise items.
+
+---
+
 ## 1. Product Overview
 
 ### 1.1 Problem statement
