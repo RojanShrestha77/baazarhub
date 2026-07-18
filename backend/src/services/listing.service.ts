@@ -140,7 +140,14 @@ export async function searchListings(filters: SearchFilters) {
     if (!category) {
       return { listings: [], total: 0, page: filters.page, limit: filters.limit };
     }
-    filter.category = category._id;
+    if (category.parentId === null) {
+      // Parent category: match listings in it OR any of its subcategories.
+      const children = await CategoryModel.find({ parentId: category._id }).select("_id");
+      filter.category = { $in: [category._id, ...children.map((c) => c._id)] };
+    } else {
+      // Leaf (subcategory): exact match.
+      filter.category = category._id;
+    }
   }
 
   if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {

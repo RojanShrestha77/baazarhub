@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, FormEvent, useCallback } from "react";
+import { useState, useEffect, FormEvent, useCallback, Fragment } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Search, Plus, ShoppingBag, ChevronLeft, ChevronRight, SlidersHorizontal, PackageOpen } from "lucide-react";
 import { api, API_BASE } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { SearchResult, SerializedListing, Category } from "@/types";
-import { formatPrice } from "@/types";
+import { formatPrice, buildCategoryTree } from "@/types";
 
 export default function MarketplaceClient() {
   const { user } = useAuth();
@@ -89,7 +89,12 @@ export default function MarketplaceClient() {
               <label className="block text-xs font-medium text-gray-500 mb-1.5">Category</label>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-44 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
                 <option value="">All Categories</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {buildCategoryTree(categories).map((t) => (
+                  <Fragment key={t.parent.id}>
+                    <option value={t.parent.id}>{t.parent.name}</option>
+                    {t.children.map((c) => <option key={c.id} value={c.id}>&nbsp;&nbsp;{c.name}</option>)}
+                  </Fragment>
+                ))}
               </select>
             </div>
             <div className="flex-1 min-w-0 sm:w-auto">

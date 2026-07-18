@@ -96,6 +96,17 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
+  parentId: string | null;
+}
+
+// Groups a flat category list into parents each carrying their children,
+// preserving API order. Parents are those with parentId === null.
+export function buildCategoryTree(categories: Category[]): { parent: Category; children: Category[] }[] {
+  const parents = categories.filter((c) => c.parentId === null);
+  return parents.map((parent) => ({
+    parent,
+    children: categories.filter((c) => String(c.parentId) === String(parent.id)),
+  }));
 }
 
 export interface SerializedListing {
