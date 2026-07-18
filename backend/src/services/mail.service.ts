@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { transporter, MAIL_FROM } from "../lib/mailer";
+import { FRONTEND_URL } from "../configs";
 import { UserModel } from "../models/user.model";
 
 type MailOptions = {
@@ -37,14 +38,16 @@ export function sendExistingAccountNotice(email: string): void {
 }
 
 export function sendEmailVerification(email: string, token: string): void {
+  const link = `${FRONTEND_URL}/verify-email?token=${encodeURIComponent(token)}`;
   sendMailAsync({
     to: email,
     subject: "Verify your BazaarHub email address",
     text:
-      `Use this token to verify your email address: ${token}\n\n` +
-      "This confirms you own this address and unlocks buying and selling. " +
-      "The token is single-use and expires in 24 hours. If you didn't create " +
-      "a BazaarHub account, you can ignore this email.",
+      "Welcome to BazaarHub! Click the link below to verify your email address " +
+      "and unlock buying and selling:\n\n" +
+      `${link}\n\n` +
+      "This link is single-use and expires in 24 hours. If you didn't create a " +
+      "BazaarHub account, you can ignore this email.",
   });
 }
 
