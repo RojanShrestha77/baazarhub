@@ -123,9 +123,15 @@ export default function ProfilePage() {
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold text-gray-900 truncate">{profile.displayName || "User"}</h1>
               <div className="flex flex-wrap items-center gap-3 mt-1.5 text-sm text-gray-500">
-                <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{profile.email}</span>
-                <span className="inline-flex items-center gap-1"><Shield className="w-3.5 h-3.5" />{profile.role}</span>
-                <span className="inline-flex items-center gap-1"><BadgeCheck className="w-3.5 h-3.5" />{profile.sellerTier}</span>
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5" />{profile.email}
+                  {profile.emailVerified && <BadgeCheck className="w-3.5 h-3.5 text-green-500" aria-label="Email verified" />}
+                </span>
+                <span className="inline-flex items-center gap-1 capitalize"><Shield className="w-3.5 h-3.5" />{profile.role}</span>
+                {/* Seller tier is only meaningful for sellers — hide it from buyers/admins. */}
+                {profile.role === "seller" && (
+                  <span className="inline-flex items-center gap-1"><BadgeCheck className="w-3.5 h-3.5" />{profile.sellerTier} seller</span>
+                )}
               </div>
             </div>
             {profile.mfaEnabled && <span className="text-xs bg-green-50 text-green-700 font-medium px-3 py-1.5 rounded-full border border-green-100">MFA Enabled</span>}
