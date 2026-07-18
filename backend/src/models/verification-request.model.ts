@@ -3,17 +3,24 @@ import mongoose, { Schema, Document } from "mongoose";
 export const VERIFICATION_STATUSES = ["pending", "approved", "rejected"] as const;
 export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
 
-export interface IVerificationDocument {
-  filename: string;
-  originalName: string;
-  mime: string;
-  size: number;
+export const ID_TYPES = ["citizenship", "passport", "driving_license"] as const;
+export type IdType = (typeof ID_TYPES)[number];
+
+// Seller-submitted KYC details (no file upload). An admin reviews these and
+// approves/rejects to move the seller's tier.
+export interface IVerificationDetails {
+  fullName: string;
+  idType: IdType;
+  idNumber: string;
+  businessName: string;
+  phone: string;
+  address: string;
 }
 
 export interface IVerificationRequest extends Document {
   _id: mongoose.Types.ObjectId;
   sellerId: mongoose.Types.ObjectId;
-  documents: IVerificationDocument[];
+  details: IVerificationDetails;
   status: VerificationStatus;
   reviewedBy?: mongoose.Types.ObjectId;
   reviewedAt?: Date;
@@ -22,12 +29,14 @@ export interface IVerificationRequest extends Document {
   updatedAt: Date;
 }
 
-const documentSchema = new Schema<IVerificationDocument>(
+const detailsSchema = new Schema<IVerificationDetails>(
   {
-    filename: { type: String, required: true },
-    originalName: { type: String, required: true },
-    mime: { type: String, required: true },
-    size: { type: Number, required: true },
+    fullName: { type: String, required: true, trim: true, maxlength: 120 },
+    idType: { type: String, enum: ID_TYPES as unknown as string[], required: true },
+    idNumber: { type: String, required: true, trim: true, maxlength: 60 },
+    businessName: { type: String, trim: true, maxlength: 120, default: "" },
+    phone: { type: String, required: true, trim: true, maxlength: 20 },
+    address: { type: String, required: true, trim: true, maxlength: 200 },
   },
   { _id: false },
 );
@@ -35,11 +44,7 @@ const documentSchema = new Schema<IVerificationDocument>(
 const verificationRequestSchema = new Schema<IVerificationRequest>(
   {
     sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    documents: {
-      type: [documentSchema],
-      default: [],
-      validate: [(arr: IVerificationDocument[]) => arr.length > 0, "At least one document required"],
-    },
+    details: { type: detailsSchema, required: true },
     status: { type: String, enum: VERIFICATION_STATUSES as unknown as string[], default: "pending" },
     reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
     reviewedAt: { type: Date },

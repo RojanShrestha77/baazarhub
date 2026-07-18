@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { Request, Response, NextFunction } from "express";
 import {
   submitRequest,
@@ -12,10 +10,9 @@ import {
   NoPendingRequestError,
   RequestNotFoundError,
 } from "../services/verification.service";
-import { VerificationRequestModel, VerificationStatus } from "../models/verification-request.model";
-import { resolveVerificationDocPath } from "../middlewares/verification-upload";
+import { VerificationStatus } from "../models/verification-request.model";
 import { logEvent } from "../services/audit.service";
-import { RejectVerificationDto } from "../validators/verification.schema";
+import { RejectVerificationDto, VerificationSubmitDto } from "../validators/verification.schema";
 
 export class VerificationController {
   private handleError(err: unknown, res: Response, next: NextFunction) {
@@ -27,9 +24,17 @@ export class VerificationController {
 
   submit = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const request = await submitRequest(req.user!._id, req.verificationDocuments!);
+      const body = req.validatedBody as VerificationSubmitDto;
+      const request = await submitRequest(req.user!._id, {
+        fullName: body.fullName,
+        idType: body.idType,
+        idNumber: body.idNumber,
+        businessName: body.businessName ?? "",
+        phone: body.phone,
+        address: body.address,
+      });
       logEvent({ actor: req.user!._id, action: "verification_submit", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { requestId: String(request._id) } }).catch(() => {});
-      return res.status(201).json({ id: request._id, status: request.status, documents: request.documents.length, createdAt: request.createdAt });
+      return res.status(201).json({ id: request._id, status: request.status, createdAt: request.createdAt });
     } catch (err) {
       this.handleError(err, res, next);
     }
@@ -44,7 +49,6 @@ export class VerificationController {
       return res.status(200).json({
         id: request._id,
         status: request.status,
-        documents: request.documents.length,
         rejectionReason: request.rejectionReason,
         createdAt: request.createdAt,
         reviewedAt: request.reviewedAt,
@@ -59,52 +63,6 @@ export class VerificationController {
       const status = req.query.status as VerificationStatus | undefined;
       const requests = status ? await listAllRequests({ status }) : await listPendingRequests();
       return res.status(200).json(requests);
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  serveDocument = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { filename } = req.params;
-
-      if (filename.includes("..") || filename.includes(path.sep)) {
-        return res.status(404).json({ error: "Not found" });
-      }
-
-      const request = await VerificationRequestModel.findOne({ "documents.filename": filename });
-      if (!request) {
-        return res.status(404).json({ error: "Not found" });
-      }
-
-      const isOwner = String(request.sellerId) === String(req.user!._id);
-      const isAdmin = req.user!.role === "admin";
-      if (!isOwner && !isAdmin) {
-        return res.status(404).json({ error: "Not found" });
-      }
-
-      const docMeta = request.documents.find((d) => d.filename === filename);
-      if (!docMeta) {
-        return res.status(404).json({ error: "Not found" });
-      }
-
-      const filePath = resolveVerificationDocPath(filename);
-      if (!filePath) {
-        return res.status(404).json({ error: "Not found" });
-      }
-
-      await logEvent({ actor: req.user!._id, subject: request.sellerId, action: "verification_doc_access", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), after: { filename, requestId: request._id } });
-
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(filePath);
-      } catch {
-        return res.status(404).json({ error: "Not found" });
-      }
-      res.setHeader("Content-Type", docMeta.mime);
-      res.setHeader("Content-Length", stat.size);
-      res.setHeader("Content-Disposition", `inline; filename="${docMeta.originalName}"`);
-      fs.createReadStream(filePath).pipe(res);
     } catch (err) {
       next(err);
     }

@@ -2,7 +2,7 @@ import { Types } from "mongoose";
 import {
   VerificationRequestModel,
   IVerificationRequest,
-  IVerificationDocument,
+  IVerificationDetails,
   VerificationStatus,
 } from "../models/verification-request.model";
 import { UserModel } from "../models/user.model";
@@ -35,13 +35,13 @@ export class RequestNotFoundError extends Error {
 
 type IdLike = Types.ObjectId | string;
 
-export async function submitRequest(sellerId: IdLike, documents: IVerificationDocument[]): Promise<IVerificationRequest> {
+export async function submitRequest(sellerId: IdLike, details: IVerificationDetails): Promise<IVerificationRequest> {
   const existing = await VerificationRequestModel.findOne({ sellerId, status: "pending" });
   if (existing) {
     throw new NoPendingRequestError();
   }
 
-  const request = await VerificationRequestModel.create({ sellerId, documents, status: "pending" });
+  const request = await VerificationRequestModel.create({ sellerId, details, status: "pending" });
   sendVerificationSubmittedNotification(sellerId, String(request._id));
   return request;
 }

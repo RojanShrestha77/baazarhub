@@ -63,8 +63,14 @@ export default function AdminPage() {
 
   const updateVerification = async (verificationId: string, status: string) => {
     try {
-      const endpoint = status === "approved" ? "approve" : "reject";
-      await api.post(`/verification/requests/${verificationId}/${endpoint}`, {});
+      if (status === "approved") {
+        await api.post(`/verification/requests/${verificationId}/approve`, {});
+      } else {
+        // Rejection requires a reason (backend-validated).
+        const reason = window.prompt("Reason for rejecting this verification?");
+        if (!reason || !reason.trim()) return;
+        await api.post(`/verification/requests/${verificationId}/reject`, { reason: reason.trim() });
+      }
       setData({ ...data, verifications: await api.get<any[]>("/verification/requests") });
       toast.success(`Verification ${status}`);
     } catch { toast.error("Failed"); }
@@ -162,14 +168,27 @@ export default function AdminPage() {
                 <p className="text-gray-500">No verification requests.</p>
               </div>
             ) : data.verifications.map((v: any) => (
-              <div key={v._id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex items-center justify-between">
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center"><Shield className="w-5 h-5 text-indigo-500" /></div>
-                  <div className="min-w-0"><p className="font-medium text-gray-900 truncate">{v.user?.email || "Unknown"}</p><p className="text-xs text-gray-400 mt-0.5 capitalize">{v.documentType?.replace("_", " ")}</p></div>
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${v.status === "pending" ? "bg-yellow-100 text-yellow-700" : v.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{v.status}</span>
+              <div key={v._id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center flex-shrink-0"><Shield className="w-5 h-5 text-indigo-500" /></div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{v.sellerId?.email || "Unknown seller"}</p>
+                      {v.details && (
+                        <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-gray-500">
+                          <span><span className="text-gray-400">Name:</span> {v.details.fullName}</span>
+                          <span className="capitalize"><span className="text-gray-400">ID:</span> {v.details.idType?.replace("_", " ")} — {v.details.idNumber}</span>
+                          {v.details.businessName && <span><span className="text-gray-400">Business:</span> {v.details.businessName}</span>}
+                          <span><span className="text-gray-400">Phone:</span> {v.details.phone}</span>
+                          <span className="sm:col-span-2"><span className="text-gray-400">Address:</span> {v.details.address}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize flex-shrink-0 ${v.status === "pending" ? "bg-yellow-100 text-yellow-700" : v.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{v.status}</span>
                 </div>
                 {v.status === "pending" && (
-                  <div className="flex gap-2 ml-4">
+                  <div className="flex gap-2 mt-4 pt-3 border-t border-gray-50">
                     <button onClick={() => updateVerification(v._id, "approved")} className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">Approve</button>
                     <button onClick={() => updateVerification(v._id, "rejected")} className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition-colors">Reject</button>
                   </div>

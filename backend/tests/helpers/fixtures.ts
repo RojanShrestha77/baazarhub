@@ -140,9 +140,14 @@ export async function createOrder(buyer: IUser, seller: IUser, listing: IListing
 export async function createVerificationRequest(seller: IUser, overrides: Record<string, unknown> = {}) {
   return VerificationRequestModel.create({
     sellerId: seller._id,
-    documents: (overrides.documents as unknown[]) || [
-      { filename: `test-doc-${Date.now()}.pdf`, originalName: "id.pdf", mime: "application/pdf", size: 1024 },
-    ],
+    details: (overrides.details as Record<string, unknown>) || {
+      fullName: "Test Seller",
+      idType: "citizenship",
+      idNumber: "1234567890",
+      businessName: "Test Store",
+      phone: "9800000000",
+      address: "Kathmandu, Nepal",
+    },
     status: overrides.status || "pending",
     reviewedBy: overrides.reviewedBy,
     reviewedAt: overrides.reviewedAt,

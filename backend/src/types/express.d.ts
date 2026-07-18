@@ -1,7 +1,6 @@
 import { IUser } from "../models/user.model";
 import { ISession } from "../models/session.model";
 import { IListing } from "../models/listing.model";
-import { IVerificationDocument } from "../models/verification-request.model";
 
 // Request augmentation for the fields our middleware attaches. Kept in one
 // place so every handler sees the same typed surface.
@@ -20,7 +19,6 @@ declare global {
       avatarFilename?: string;
       avatarMime?: string;
       uploadedImageFilenames?: string[];
-      verificationDocuments?: IVerificationDocument[];
     }
   }
 }
