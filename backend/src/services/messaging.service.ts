@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { ConversationModel, IConversation } from "../models/conversation.model";
 import { MessageModel, IMessage } from "../models/message.model";
 import { ListingModel } from "../models/listing.model";
+import { notifyUser } from "./notification.service";
 
 type IdLike = Types.ObjectId | string;
 
@@ -65,6 +66,9 @@ export async function sendMessage(conversationId: IdLike, senderId: IdLike, body
   const convo = await requireParticipantConversation(conversationId, senderId);
   const message = await MessageModel.create({ conversationId: convo._id, senderId, body });
   await ConversationModel.updateOne({ _id: convo._id }, { $set: { lastMessageAt: message.createdAt } });
+  // Notify the OTHER participant of the new message.
+  const recipient = String(convo.buyerId) === String(senderId) ? convo.sellerId : convo.buyerId;
+  notifyUser(recipient, { type: "message", title: "New message", body: body.length > 80 ? `${body.slice(0, 80)}…` : body, link: "/messages" });
   return message;
 }
 

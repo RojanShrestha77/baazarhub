@@ -19,6 +19,8 @@ import cartRoutes from "./routes/cart.routes";
 import wishlistRoutes from "./routes/wishlist.routes";
 import messagingRoutes from "./routes/messaging.routes";
 import addressRoutes from "./routes/address.routes";
+import notificationRoutes from "./routes/notification.routes";
+import returnRoutes from "./routes/return.routes";
 import escrowRoutes from "./routes/escrow.routes";
 import escrowWebhookRoutes from "./routes/escrow-webhook.routes";
 import verificationRoutes from "./routes/verification.routes";
@@ -111,6 +113,8 @@ export function createApp() {
   app.use("/api/wishlist", mount(wishlistRoutes));
   app.use("/api/conversations", mount(messagingRoutes));
   app.use("/api/addresses", mount(addressRoutes));
+  app.use("/api/notifications", mount(notificationRoutes));
+  app.use("/api/returns", mount(returnRoutes));
   app.use("/api/escrow", mount(escrowRoutes));
   app.use("/api/verification", mount(verificationRoutes));
   app.use("/api/seller", mount(sellerRoutes));

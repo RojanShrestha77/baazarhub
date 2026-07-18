@@ -71,6 +71,27 @@ export interface Message {
   createdAt: string;
 }
 
+export interface ReturnRequest {
+  id: string;
+  orderId: string;
+  buyerId: string;
+  sellerId: string;
+  reason: string;
+  status: "requested" | "approved" | "rejected";
+  resolvedAt?: string;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  type: "order_update" | "message" | "review" | "seller_application" | "verification";
+  title: string;
+  body: string;
+  link?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -131,6 +152,9 @@ export interface Order {
   status: OrderStatus;
   stripePaymentIntentId?: string;
   holdDurationMs: number;
+  shippedAt?: string;
+  carrier?: string;
+  trackingNumber?: string;
   deliveredAt?: string;
   disputedAt?: string;
   releasedAt?: string;

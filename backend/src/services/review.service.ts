@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { ReviewModel, IReview } from "../models/review.model";
 import { ListingModel } from "../models/listing.model";
 import { OrderModel } from "../models/order.model";
+import { notifyUser } from "./notification.service";
 
 type IdLike = Types.ObjectId | string;
 
@@ -51,13 +52,15 @@ export async function createReview(
   if (!qualifying) throw new NoQualifyingPurchaseError();
 
   try {
-    return await ReviewModel.create({
+    const review = await ReviewModel.create({
       listingId: listing._id,
       sellerId: listing.sellerId,
       reviewerId,
       rating: input.rating,
       comment: input.comment ?? "",
     });
+    notifyUser(listing.sellerId, { type: "review", title: "New review", body: `Your listing "${listing.title}" received a ${input.rating}-star review.`, link: `/listings/${listing._id}` });
+    return review;
   } catch (err) {
     // Unique index {listingId, reviewerId} — a second review is a duplicate.
     if ((err as { code?: number })?.code === 11000) throw new AlreadyReviewedError();

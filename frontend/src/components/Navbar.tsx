@@ -1,14 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, X, ShoppingCart, User, Package, Heart, MessageSquare, ChevronDown, LogOut, Shield } from "lucide-react";
+import { Menu, X, ShoppingCart, User, Package, Heart, MessageSquare, ChevronDown, LogOut, Shield, Bell, RotateCcw } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 
 export default function Navbar() {
   const { user, logout, loading } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+
+  // Poll the unread count while signed in (light, every 60s) so the badge
+  // reflects notifications created by order/message/review events.
+  useEffect(() => {
+    if (!user) { setUnread(0); return; }
+    let active = true;
+    const load = () => api.get<{ unreadCount: number }>("/notifications").then((d) => { if (active) setUnread(d.unreadCount); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { active = false; clearInterval(t); };
+  }, [user]);
 
   return (
     <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-200 shadow-sm">
@@ -28,6 +41,14 @@ export default function Navbar() {
             <Link href="/cart" className="relative text-gray-600 hover:text-indigo-600 transition-colors">
               <ShoppingCart className="w-5 h-5" />
             </Link>
+            {user && (
+              <Link href="/notifications" className="relative text-gray-600 hover:text-indigo-600 transition-colors" aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}>
+                <Bell className="w-5 h-5" />
+                {unread > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{unread > 9 ? "9+" : unread}</span>
+                )}
+              </Link>
+            )}
             {loading ? (
               <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
             ) : user ? (
@@ -44,6 +65,9 @@ export default function Navbar() {
                     </Link>
                     <Link href="/orders" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
                       <Package className="w-4 h-4" /> Orders
+                    </Link>
+                    <Link href="/returns" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+                      <RotateCcw className="w-4 h-4" /> Returns
                     </Link>
                     <Link href="/wishlist" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
                       <Heart className="w-4 h-4" /> Wishlist
@@ -93,8 +117,11 @@ export default function Navbar() {
           <Link href="/cart" className="block text-sm font-medium text-gray-700 py-2">Cart</Link>
           {user ? (
             <>
+              <Link href="/notifications" className="block text-sm font-medium text-gray-700 py-2">Notifications{unread > 0 ? ` (${unread})` : ""}</Link>
               <Link href="/profile" className="block text-sm font-medium text-gray-700 py-2">Profile</Link>
               <Link href="/orders" className="block text-sm font-medium text-gray-700 py-2">Orders</Link>
+              <Link href="/wishlist" className="block text-sm font-medium text-gray-700 py-2">Wishlist</Link>
+              <Link href="/messages" className="block text-sm font-medium text-gray-700 py-2">Messages</Link>
               {(user.role === "seller" || user.role === "admin") && (
                 <Link href="/seller" className="block text-sm font-medium text-gray-700 py-2">Seller Dashboard</Link>
               )}
