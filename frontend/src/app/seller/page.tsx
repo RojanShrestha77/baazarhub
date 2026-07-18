@@ -4,26 +4,36 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { PlusCircle, Package, FileText, ShoppingBag, Shield, BarChart3, Pencil, Send, CheckCircle, Trash2, Truck } from "lucide-react";
+import { PlusCircle, Package, FileText, ShoppingBag, Shield, BarChart3, Pencil, Send, CheckCircle, Trash2, Truck, Wallet, TrendingUp } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { formatPrice } from "@/types";
 import toast from "react-hot-toast";
+
+interface SellerAnalytics { grossRevenueMinorUnits: number; pendingRevenueMinorUnits: number; orderCount: number; }
+interface PayoutSummary { availableMinorUnits: number; paidOutMinorUnits: number; netEarningsMinorUnits: number; commissionRate: number; }
 
 export default function SellerDashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [tab, setTab] = useState<"listings" | "orders">("listings");
   const [data, setData] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<SellerAnalytics | null>(null);
+  const [payouts, setPayouts] = useState<PayoutSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const fetchSeller = useCallback(async () => {
     try {
-      const [listingsRes, orders] = await Promise.all([
+      const [listingsRes, orders, analyticsRes, payoutsRes] = await Promise.all([
         api.get<{ listings: any[] }>("/listings/mine").catch(() => ({ listings: [] })),
         api.get<any[]>("/escrow/orders?role=seller").catch(() => []),
+        api.get<SellerAnalytics>("/seller/analytics").catch(() => null),
+        api.get<{ summary: PayoutSummary }>("/seller/payouts").catch(() => null),
       ]);
       setData({ listings: listingsRes.listings ?? [], orders: Array.isArray(orders) ? orders : [] });
+      setAnalytics(analyticsRes);
+      setPayouts(payoutsRes?.summary ?? null);
     } catch { setData({ listings: [], orders: [] }); }
     finally { setLoading(false); }
   }, []);
@@ -116,6 +126,35 @@ export default function SellerDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Revenue & payouts */}
+        {(analytics || payouts) && (
+          <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-6 shadow-sm mb-6 text-white">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-4 h-4" />
+              <h2 className="font-semibold">Revenue &amp; Payouts</h2>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-indigo-100">Released revenue</p>
+                <p className="text-xl font-bold mt-0.5">{formatPrice(analytics?.grossRevenueMinorUnits ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-indigo-100">In escrow (pending)</p>
+                <p className="text-xl font-bold mt-0.5">{formatPrice(analytics?.pendingRevenueMinorUnits ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-indigo-100">Available payout</p>
+                <p className="text-xl font-bold mt-0.5">{formatPrice(payouts?.availableMinorUnits ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-indigo-100 flex items-center gap-1"><Wallet className="w-3 h-3" /> Paid out</p>
+                <p className="text-xl font-bold mt-0.5">{formatPrice(payouts?.paidOutMinorUnits ?? 0)}</p>
+              </div>
+            </div>
+            {payouts && <p className="text-[11px] text-indigo-200 mt-3">Net of {Math.round(payouts.commissionRate * 100)}% platform commission. Payouts are disbursed by the platform.</p>}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-gray-50 rounded-xl p-1">

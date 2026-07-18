@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { Types } from "mongoose";
 import { UserModel } from "../models/user.model";
 import {
   changeUserRole,
@@ -8,7 +9,9 @@ import {
   rejectSellerApplication,
   SelfTargetError,
 } from "../services/admin.service";
-import { RoleChangeDto, TierChangeDto } from "../validators/admin.schema";
+import { RoleChangeDto, TierChangeDto, PayoutDto } from "../validators/admin.schema";
+import { recordPayout, getPayoutSummary, PayoutAmountError } from "../services/seller-analytics.service";
+import { logEvent } from "../services/audit.service";
 
 export class AdminController {
   list = async (_req: Request, res: Response, next: NextFunction) => {
@@ -16,6 +19,28 @@ export class AdminController {
       const users = await UserModel.find({}).select("-passwordHash -passwordHistory -mfaSecret -recoveryCodes").lean();
       return res.status(200).json(users);
     } catch (err) {
+      next(err);
+    }
+  };
+
+  // Record a payout of released earnings to a seller. Guarded against
+  // over-disbursing beyond the seller's available balance in the service.
+  sellerPayoutSummary = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      return res.status(200).json(await getPayoutSummary(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  recordSellerPayout = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { amountMinorUnits, note } = req.validatedBody as PayoutDto;
+      const payout = await recordPayout(req.params.id, amountMinorUnits, req.user!._id, note ?? "");
+      logEvent({ actor: req.user!._id, subject: new Types.ObjectId(req.params.id), action: "seller_payout", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { amountMinorUnits } }).catch(() => {});
+      return res.status(201).json({ id: payout._id, amountMinorUnits: payout.amountMinorUnits });
+    } catch (err) {
+      if (err instanceof PayoutAmountError) return res.status(400).json({ error: err.message });
       next(err);
     }
   };

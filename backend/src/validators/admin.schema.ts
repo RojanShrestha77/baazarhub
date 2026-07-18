@@ -6,5 +6,13 @@ export const roleChangeSchema = z.object({ role: z.enum(["buyer", "seller", "adm
 
 export const tierChangeSchema = z.object({ sellerTier: z.enum(["unverified", "verified", "trusted"]) }).strict();
 
+export const payoutSchema = z
+  .object({
+    amountMinorUnits: z.coerce.number().int().min(1, "Amount must be a positive integer"),
+    note: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
 export type RoleChangeDto = z.infer<typeof roleChangeSchema>;
 export type TierChangeDto = z.infer<typeof tierChangeSchema>;
+export type PayoutDto = z.infer<typeof payoutSchema>;

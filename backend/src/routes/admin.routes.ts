@@ -3,7 +3,7 @@ import { requireRole, requireMfaVerified } from "../middlewares/authz";
 import { requireCsrfToken } from "../lib/csrf";
 import { adminActionLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateObjectIdParam } from "../middlewares/validate";
-import { roleChangeSchema, tierChangeSchema } from "../validators/admin.schema";
+import { roleChangeSchema, tierChangeSchema, payoutSchema } from "../validators/admin.schema";
 import { AdminController } from "../controllers/admin.controller";
 
 const router = createAuthzRouter();
@@ -22,6 +22,10 @@ router.get("/users", ADMIN_MFA, adminActionLimiter, admin.list);
 router.get("/seller-applications", ADMIN_MFA, adminActionLimiter, admin.listSellerApplications);
 router.post("/seller-applications/:id/approve", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), admin.approveSellerApplication);
 router.post("/seller-applications/:id/reject", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), admin.rejectSellerApplication);
+
+// Seller payouts — record a disbursement, or read a seller's payout summary.
+router.get("/sellers/:id/payouts", ADMIN_MFA, adminActionLimiter, validateObjectIdParam("id"), admin.sellerPayoutSummary);
+router.post("/sellers/:id/payouts", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(payoutSchema), admin.recordSellerPayout);
 
 router.patch("/users/:id/role", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(roleChangeSchema), admin.changeRole);
 router.patch("/users/:id/tier", ADMIN_MFA, requireCsrfToken, adminActionLimiter, validateObjectIdParam("id"), validateBody(tierChangeSchema), admin.changeTier);
