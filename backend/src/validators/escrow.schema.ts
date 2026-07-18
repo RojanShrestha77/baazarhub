@@ -9,5 +9,21 @@ export const resolveDisputeSchema = z.object({
   resolution: z.enum(["refunded", "released"]),
 });
 
+// Shipping details supplied when a seller ships (or later updates tracking).
+// Both fields optional — a seller may ship without a tracking number.
+export const shipSchema = z
+  .object({
+    carrier: z.string().trim().max(60).optional(),
+    trackingNumber: z.string().trim().max(100).optional(),
+  })
+  .strict();
+
+// Tracking update requires at least one field to change.
+export const trackingUpdateSchema = shipSchema.refine(
+  (o) => o.carrier !== undefined || o.trackingNumber !== undefined,
+  { message: "Provide a carrier or tracking number" },
+);
+
 export type CheckoutDto = z.infer<typeof checkoutSchema>;
 export type ResolveDisputeDto = z.infer<typeof resolveDisputeSchema>;
+export type ShipDto = z.infer<typeof shipSchema>;

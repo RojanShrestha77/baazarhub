@@ -4,7 +4,7 @@ import { requireEmailVerified } from "../middlewares/session";
 import { requireCsrfToken } from "../lib/csrf";
 import { escrowReadLimiter, escrowWriteLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateObjectIdParam } from "../middlewares/validate";
-import { checkoutSchema, resolveDisputeSchema } from "../validators/escrow.schema";
+import { checkoutSchema, resolveDisputeSchema, shipSchema, trackingUpdateSchema } from "../validators/escrow.schema";
 import { EscrowController } from "../controllers/escrow.controller";
 
 const router = createAuthzRouter();
@@ -18,7 +18,9 @@ router.get("/orders/:orderId", [requireSession], escrowReadLimiter, validateObje
 
 router.get("/orders/:orderId/events", [requireSession], escrowReadLimiter, validateObjectIdParam("orderId"), escrow.getOrderEvents);
 
-router.post("/orders/:orderId/ship", [requireSession, requireRole("seller")], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), escrow.markShipped);
+router.post("/orders/:orderId/ship", [requireSession, requireRole("seller")], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), validateBody(shipSchema), escrow.markShipped);
+
+router.patch("/orders/:orderId/tracking", [requireSession, requireRole("seller")], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), validateBody(trackingUpdateSchema), escrow.updateTracking);
 
 router.post("/orders/:orderId/confirm-delivery", [requireSession], requireCsrfToken, escrowWriteLimiter, validateObjectIdParam("orderId"), escrow.confirmDelivery);
 

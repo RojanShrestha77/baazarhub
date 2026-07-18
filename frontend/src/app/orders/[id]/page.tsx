@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Truck, CheckCircle, AlertTriangle, Shield, Package, ChevronLeft, Clock, Ban, X } from "lucide-react";
+import { Truck, CheckCircle, AlertTriangle, Shield, Package, ChevronLeft, Clock, Ban, X, RotateCcw } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Order } from "@/types";
@@ -31,6 +31,11 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
+  const [shipOpen, setShipOpen] = useState(false);
+  const [carrier, setCarrier] = useState("");
+  const [tracking, setTracking] = useState("");
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
@@ -46,6 +51,37 @@ export default function OrderDetailPage() {
       setOrder(await api.get<Order>(`/escrow/orders/${params.id}`));
     } catch (err: unknown) {
       toast.error(err instanceof ApiError ? err.message : `${label} failed`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const shipOrder = async () => {
+    setActionLoading("ship");
+    try {
+      const body: Record<string, string> = {};
+      if (carrier.trim()) body.carrier = carrier.trim();
+      if (tracking.trim()) body.trackingNumber = tracking.trim();
+      await api.post(`/escrow/orders/${params.id}/ship`, body);
+      toast.success("Order marked as shipped");
+      setShipOpen(false); setCarrier(""); setTracking("");
+      setOrder(await api.get<Order>(`/escrow/orders/${params.id}`));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Ship failed");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const submitReturn = async () => {
+    if (!returnReason.trim()) return;
+    setActionLoading("return");
+    try {
+      await api.post("/returns", { orderId: params.id, reason: returnReason.trim() });
+      toast.success("Return request submitted");
+      setReturnOpen(false); setReturnReason("");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not submit return");
     } finally {
       setActionLoading(null);
     }
@@ -88,6 +124,24 @@ export default function OrderDetailPage() {
           </div>
         </div>
 
+        {/* Tracking */}
+        {(order.status === "shipped" || order.status === "delivered") && (order.carrier || order.trackingNumber || order.shippedAt) && (
+          <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Truck className="w-4 h-4 text-purple-600" />
+              <h2 className="font-semibold text-gray-900">Shipping</h2>
+            </div>
+            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              {order.carrier && <div><dt className="text-gray-400 text-xs">Carrier</dt><dd className="font-medium text-gray-900 mt-0.5">{order.carrier}</dd></div>}
+              {order.trackingNumber && <div><dt className="text-gray-400 text-xs">Tracking No.</dt><dd className="font-medium text-gray-900 mt-0.5 break-all">{order.trackingNumber}</dd></div>}
+              {order.shippedAt && <div><dt className="text-gray-400 text-xs">Shipped</dt><dd className="font-medium text-gray-900 mt-0.5">{new Date(order.shippedAt).toLocaleDateString()}</dd></div>}
+            </dl>
+            {isSeller && order.status === "shipped" && !order.trackingNumber && (
+              <p className="text-xs text-gray-400 mt-3">No tracking added yet. You can update it from your shipment records.</p>
+            )}
+          </div>
+        )}
+
         {/* Timeline */}
         {showTimeline && (
           <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm mb-6">
@@ -119,9 +173,21 @@ export default function OrderDetailPage() {
         {/* Actions */}
         <div className="space-y-3">
           {(order.status === "payment_held") && isSeller && (
-            <button onClick={() => doAction("ship", "Ship")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition-all active:scale-[0.98] shadow-sm">
-              <Truck className="w-5 h-5" />{actionLoading === "ship" ? "Shipping..." : "Mark as Shipped"}
-            </button>
+            shipOpen ? (
+              <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm space-y-3">
+                <p className="text-sm font-medium text-gray-700">Shipping details (optional)</p>
+                <input value={carrier} onChange={(e) => setCarrier(e.target.value)} maxLength={60} placeholder="Carrier (e.g. Nepal Post, Aramex)" className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none" />
+                <input value={tracking} onChange={(e) => setTracking(e.target.value)} maxLength={100} placeholder="Tracking number" className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none" />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => { setShipOpen(false); setCarrier(""); setTracking(""); }} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+                  <button onClick={shipOrder} disabled={actionLoading !== null} className="inline-flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50"><Truck className="w-4 h-4" />{actionLoading === "ship" ? "Shipping…" : "Confirm Shipment"}</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setShipOpen(true)} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition-all active:scale-[0.98] shadow-sm">
+                <Truck className="w-5 h-5" /> Mark as Shipped
+              </button>
+            )
           )}
           {order.status === "shipped" && isBuyer && (
             <button onClick={() => doAction("confirm", "Confirm Delivery")} disabled={actionLoading !== null} className="w-full flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 disabled:opacity-50 transition-all active:scale-[0.98] shadow-sm">
@@ -141,8 +207,24 @@ export default function OrderDetailPage() {
           {order.status === "delivered" && (
             <div className="bg-green-50 rounded-xl p-4 flex items-center gap-3 border border-green-100">
               <CheckCircle className="w-5 h-5 text-green-600" />
-              <p className="text-sm text-green-800 font-medium">Order completed. Funds have been released to the seller.</p>
+              <p className="text-sm text-green-800 font-medium">Delivery confirmed. Funds release to the seller after the hold period.</p>
             </div>
+          )}
+          {order.status === "delivered" && isBuyer && (
+            returnOpen ? (
+              <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                <p className="text-sm font-medium text-gray-700 mb-2">Request a return</p>
+                <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} maxLength={1000} rows={3} placeholder="Why are you returning this item?" className="w-full rounded-xl border border-gray-200 p-3 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none resize-none" />
+                <div className="mt-2 flex justify-end gap-2">
+                  <button onClick={() => { setReturnOpen(false); setReturnReason(""); }} className="px-4 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+                  <button onClick={submitReturn} disabled={actionLoading !== null || !returnReason.trim()} className="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">{actionLoading === "return" ? "Submitting…" : "Submit return"}</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setReturnOpen(true)} className="w-full flex items-center justify-center gap-2 border border-amber-200 text-amber-700 py-3 rounded-xl font-semibold hover:bg-amber-50 transition-all">
+                <RotateCcw className="w-5 h-5" /> Request a Return
+              </button>
+            )
           )}
           {order.status === "released" && (
             <div className="bg-gray-50 rounded-xl p-4 flex items-center gap-3 border border-gray-100">

@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { OrderModel, IOrder, OrderStatus } from "../models/order.model";
 import { EscrowEventModel, EscrowTriggerType } from "../models/escrow-event.model";
 import { WebhookEventModel } from "../models/webhook-event.model";
+import { ReturnRequestModel } from "../models/return-request.model";
 import { ListingModel } from "../models/listing.model";
 import { UserModel } from "../models/user.model";
 import { SellerTier } from "../types/user.type";
@@ -14,6 +15,13 @@ import {
   sendOrderReleasedNotification,
   sendOrderRefundedNotification,
 } from "./mail.service";
+import { notifyUser } from "./notification.service";
+
+// In-app notification helper for order events — mirrors the transactional
+// emails, deep-linking to the order. Fire-and-forget, same as the emails.
+function notifyOrder(userId: IdLike, orderId: IdLike, title: string, body: string): void {
+  notifyUser(userId, { type: "order_update", title, body, link: `/orders/${orderId}` });
+}
 
 // ── State machine: data-driven transition table ──
 interface TransitionRule {
@@ -30,6 +38,8 @@ const TRANSITIONS: TransitionRule[] = [
   { from: "shipped", to: "delivered", whoCanTrigger: ["buyer"], guards: [] },
   { from: "shipped", to: "disputed", whoCanTrigger: ["buyer"], guards: ["dispute_window_open"] },
   { from: "delivered", to: "released", whoCanTrigger: ["system", "admin"], guards: ["hold_expired"] },
+  // Return approval: seller or admin refunds a delivered order.
+  { from: "delivered", to: "refunded", whoCanTrigger: ["seller", "admin"], guards: [] },
   { from: "disputed", to: "refunded", whoCanTrigger: ["admin"], guards: [] },
   { from: "disputed", to: "released", whoCanTrigger: ["admin"], guards: [] },
 ];
@@ -97,6 +107,13 @@ interface TransitionOptions {
   disputeResolvedBy?: IdLike;
   disputeResolution?: "released" | "refunded";
   stripePaymentIntentId?: string;
+  carrier?: string;
+  trackingNumber?: string;
+}
+
+export interface ShippingDetails {
+  carrier?: string;
+  trackingNumber?: string;
 }
 
 function lookupTransition(fromStatus: string, toStatus: string, triggerType: string): TransitionRule | undefined {
@@ -140,6 +157,11 @@ export async function transitionOrder(
   }
 
   const $set: Record<string, unknown> = { status: toStatus };
+  if (toStatus === "shipped") {
+    $set.shippedAt = new Date();
+    if (options.carrier !== undefined) $set.carrier = options.carrier;
+    if (options.trackingNumber !== undefined) $set.trackingNumber = options.trackingNumber;
+  }
   if (toStatus === "delivered") $set.deliveredAt = new Date();
   if (toStatus === "disputed") $set.disputedAt = new Date();
   if (toStatus === "released") $set.releasedAt = new Date();
@@ -238,15 +260,36 @@ export async function checkout(listingId: IdLike, quantity: number, buyerId: IdL
   return { order, clientSecret: paymentIntent.client_secret };
 }
 
-export async function markShipped(orderId: IdLike, sellerId: IdLike) {
-  const result = await transitionOrder(orderId, "payment_held", "shipped", "seller", sellerId);
-  if (result) sendOrderShippedNotification(result.buyerId, String(result._id));
+export async function markShipped(orderId: IdLike, sellerId: IdLike, shipping: ShippingDetails = {}) {
+  const result = await transitionOrder(orderId, "payment_held", "shipped", "seller", sellerId, {
+    carrier: shipping.carrier,
+    trackingNumber: shipping.trackingNumber,
+  });
+  if (result) {
+    sendOrderShippedNotification(result.buyerId, String(result._id));
+    const tracking = result.trackingNumber ? ` Tracking: ${result.carrier || ""} ${result.trackingNumber}`.trimEnd() : "";
+    notifyOrder(result.buyerId, result._id, "Order shipped", `"${result.listingSnapshot.title}" is on its way.${tracking}`);
+  }
   return result;
+}
+
+// Seller updates/adds tracking on an already-shipped order (e.g. forgot to add
+// it at ship time). Scoped to {_id, sellerId, status: "shipped"} so it can only
+// touch the seller's own in-transit order.
+export async function updateTracking(orderId: IdLike, sellerId: IdLike, shipping: ShippingDetails): Promise<IOrder | null> {
+  const $set: Record<string, unknown> = {};
+  if (shipping.carrier !== undefined) $set.carrier = shipping.carrier;
+  if (shipping.trackingNumber !== undefined) $set.trackingNumber = shipping.trackingNumber;
+  if (Object.keys($set).length === 0) return null;
+  return OrderModel.findOneAndUpdate({ _id: orderId, sellerId, status: "shipped" }, { $set }, { new: true });
 }
 
 export async function confirmDelivery(orderId: IdLike, buyerId: IdLike) {
   const result = await transitionOrder(orderId, "shipped", "delivered", "buyer", buyerId);
-  if (result) sendOrderDeliveredNotification(result.sellerId, String(result._id));
+  if (result) {
+    sendOrderDeliveredNotification(result.sellerId, String(result._id));
+    notifyOrder(result.sellerId, result._id, "Delivery confirmed", `The buyer confirmed delivery of "${result.listingSnapshot.title}".`);
+  }
   return result;
 }
 
@@ -257,7 +300,10 @@ export async function openDispute(orderId: IdLike, buyerId: IdLike) {
     throw new TransitionNotAllowedError(order.status, "disputed", "Can only dispute from payment_held or shipped");
   }
   const result = await transitionOrder(orderId, order.status, "disputed", "buyer", buyerId);
-  if (result) sendOrderDisputedNotification(result.sellerId, String(result._id));
+  if (result) {
+    sendOrderDisputedNotification(result.sellerId, String(result._id));
+    notifyOrder(result.sellerId, result._id, "Order disputed", `The buyer opened a dispute on "${result.listingSnapshot.title}".`);
+  }
   return result;
 }
 
@@ -271,10 +317,14 @@ export async function resolveDispute(orderId: IdLike, adminId: IdLike, resolutio
       await handleReleaseActions(result);
       sendOrderReleasedNotification(result.buyerId, String(result._id));
       sendOrderReleasedNotification(result.sellerId, String(result._id));
+      notifyOrder(result.buyerId, result._id, "Dispute resolved — released", `Funds for "${result.listingSnapshot.title}" were released to the seller.`);
+      notifyOrder(result.sellerId, result._id, "Dispute resolved — released", `Funds for "${result.listingSnapshot.title}" were released to you.`);
     } else {
       await handleRefundActions(result);
       sendOrderRefundedNotification(result.buyerId, String(result._id));
       sendOrderRefundedNotification(result.sellerId, String(result._id));
+      notifyOrder(result.buyerId, result._id, "Dispute resolved — refunded", `You were refunded for "${result.listingSnapshot.title}".`);
+      notifyOrder(result.sellerId, result._id, "Dispute resolved — refunded", `"${result.listingSnapshot.title}" was refunded to the buyer.`);
     }
   }
   return result;
@@ -286,6 +336,7 @@ export async function adminRelease(orderId: IdLike, adminId: IdLike) {
     await handleReleaseActions(result);
     sendOrderReleasedNotification(result.buyerId, String(result._id));
     sendOrderReleasedNotification(result.sellerId, String(result._id));
+    notifyOrder(result.sellerId, result._id, "Funds released", `Funds for "${result.listingSnapshot.title}" were released to you.`);
   }
   return result;
 }
@@ -293,11 +344,32 @@ export async function adminRelease(orderId: IdLike, adminId: IdLike) {
 export async function tryAutoRelease(order: IOrder) {
   if (order.status !== "delivered" || !order.deliveredAt) return null;
   if (Date.now() - order.deliveredAt.getTime() < order.holdDurationMs) return null;
+  // A pending return holds the funds — never auto-release out from under it.
+  const pendingReturn = await ReturnRequestModel.exists({ orderId: order._id, status: "requested" });
+  if (pendingReturn) return null;
   const result = await transitionOrder(order._id, "delivered", "released", "system", null);
   if (result) {
     await handleReleaseActions(result);
     sendOrderReleasedNotification(result.buyerId, String(result._id));
     sendOrderReleasedNotification(result.sellerId, String(result._id));
+    notifyOrder(result.sellerId, result._id, "Funds released", `The hold period ended and funds for "${result.listingSnapshot.title}" were released to you.`);
+  }
+  return result;
+}
+
+// Refund a delivered order because an approved return. Seller or admin only
+// (enforced by the transition table). Releases the escrow hold and notifies
+// both parties.
+export async function refundDeliveredOrder(orderId: IdLike, actorId: IdLike, triggerType: "seller" | "admin") {
+  const result = await transitionOrder(orderId, "delivered", "refunded", triggerType, actorId, {
+    reason: "Return approved",
+  });
+  if (result) {
+    await handleRefundActions(result);
+    sendOrderRefundedNotification(result.buyerId, String(result._id));
+    sendOrderRefundedNotification(result.sellerId, String(result._id));
+    notifyOrder(result.buyerId, result._id, "Return approved — refunded", `Your return for "${result.listingSnapshot.title}" was approved and refunded.`);
+    notifyOrder(result.sellerId, result._id, "Return approved", `The return for "${result.listingSnapshot.title}" was approved and refunded to the buyer.`);
   }
   return result;
 }
@@ -325,7 +397,11 @@ export async function handlePaymentSucceeded(paymentIntentId: string, stripeEven
     reason: "Payment intent succeeded",
     metadata: { stripeEventId },
   });
-  if (result) sendPaymentReceivedNotification(result.sellerId, String(result._id));
+  if (result) {
+    sendPaymentReceivedNotification(result.sellerId, String(result._id));
+    notifyOrder(result.sellerId, result._id, "Payment received", `Payment for "${result.listingSnapshot.title}" is held in escrow. Ship to release funds.`);
+    notifyOrder(result.buyerId, result._id, "Payment confirmed", `Your payment for "${result.listingSnapshot.title}" is secured in escrow.`);
+  }
   return result;
 }
 
@@ -462,5 +538,7 @@ export async function cancelOrderByBuyer(orderId: IdLike, buyerId: IdLike): Prom
   if (order.status !== "created" && order.status !== "payment_held") {
     throw new TransitionNotAllowedError(order.status, "cancelled", "Order can only be cancelled before it ships");
   }
-  return cancelAndRestore(order, "buyer", buyerId, "Cancelled by buyer before shipment");
+  const result = await cancelAndRestore(order, "buyer", buyerId, "Cancelled by buyer before shipment");
+  if (result) notifyOrder(result.sellerId, result._id, "Order cancelled", `The buyer cancelled their order for "${result.listingSnapshot.title}".`);
+  return result;
 }

@@ -5,6 +5,7 @@ import {
   confirmDelivery,
   openDispute,
   cancelOrderByBuyer,
+  updateTracking,
   resolveDispute as resolveDisputeService,
   adminRelease,
   getOrder,
@@ -27,7 +28,7 @@ import {
   sendOrderReleasedNotification,
   sendOrderRefundedNotification,
 } from "../services/mail.service";
-import { CheckoutDto, ResolveDisputeDto } from "../validators/escrow.schema";
+import { CheckoutDto, ResolveDisputeDto, ShipDto } from "../validators/escrow.schema";
 
 export class EscrowController {
   private handleError(err: unknown, res: Response, next: NextFunction) {
@@ -114,10 +115,23 @@ export class EscrowController {
       const order = await OrderModel.findById(req.params.orderId);
       if (!order) return res.status(404).json({ error: "Not found" });
       if (String(order.sellerId) !== String(req.user!._id)) return res.status(404).json({ error: "Not found" });
-      const updated = await markShipped(req.params.orderId, req.user!._id);
+      const shipping = (req.validatedBody as ShipDto) || {};
+      const updated = await markShipped(req.params.orderId, req.user!._id, { carrier: shipping.carrier, trackingNumber: shipping.trackingNumber });
       if (!updated) return res.status(409).json({ error: "Transition failed — state changed" });
       logEvent({ actor: req.user!._id, action: "escrow_ship", outcome: "success", subject: order.buyerId, ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: req.params.orderId } }).catch(() => {});
       sendOrderShippedNotification(order.buyerId, req.params.orderId);
+      return res.status(200).json(updated);
+    } catch (err) {
+      this.handleError(err, res, next);
+    }
+  };
+
+  updateTracking = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const shipping = req.validatedBody as ShipDto;
+      const updated = await updateTracking(req.params.orderId, req.user!._id, { carrier: shipping.carrier, trackingNumber: shipping.trackingNumber });
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      logEvent({ actor: req.user!._id, action: "escrow_update_tracking", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: req.params.orderId } }).catch(() => {});
       return res.status(200).json(updated);
     } catch (err) {
       this.handleError(err, res, next);

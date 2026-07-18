@@ -33,6 +33,9 @@ export interface IOrder extends Document {
   status: OrderStatus;
   stripePaymentIntentId?: string;
   holdDurationMs: number;
+  shippedAt?: Date;
+  carrier?: string;
+  trackingNumber?: string;
   deliveredAt?: Date;
   disputedAt?: Date;
   releasedAt?: Date;
@@ -64,6 +67,11 @@ const orderSchema = new Schema<IOrder>(
     status: { type: String, enum: ORDER_STATUSES as unknown as string[], default: "created" },
     stripePaymentIntentId: { type: String },
     holdDurationMs: { type: Number, required: true },
+    // Shipping / delivery tracking — set when the seller marks the order
+    // shipped. carrier + trackingNumber are seller-provided and optional.
+    shippedAt: { type: Date },
+    carrier: { type: String, trim: true, maxlength: 60 },
+    trackingNumber: { type: String, trim: true, maxlength: 100 },
     deliveredAt: { type: Date },
     disputedAt: { type: Date },
     releasedAt: { type: Date },
