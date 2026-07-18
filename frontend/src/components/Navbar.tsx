@@ -76,7 +76,7 @@ export default function Navbar() {
                       <MessageSquare className="w-4 h-4" /> Messages
                     </Link>
                     <hr className="my-1 border-gray-100" />
-                    {(user.role === "seller" || user.role === "admin") && (
+                    {user.role === "seller" && (
                       <Link href="/seller" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
                         <Package className="w-4 h-4" /> Seller Dashboard
                       </Link>
@@ -122,7 +122,7 @@ export default function Navbar() {
               <Link href="/orders" className="block text-sm font-medium text-gray-700 py-2">Orders</Link>
               <Link href="/wishlist" className="block text-sm font-medium text-gray-700 py-2">Wishlist</Link>
               <Link href="/messages" className="block text-sm font-medium text-gray-700 py-2">Messages</Link>
-              {(user.role === "seller" || user.role === "admin") && (
+              {user.role === "seller" && (
                 <Link href="/seller" className="block text-sm font-medium text-gray-700 py-2">Seller Dashboard</Link>
               )}
               {user.role === "admin" && (
