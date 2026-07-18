@@ -45,7 +45,14 @@ export function totpEncryptionKey(version: number): string {
 // ── Mail ────────────────────────────────────────────────────────────────
 export const SMTP_HOST: string = process.env.SMTP_HOST || "localhost";
 export const SMTP_PORT: number = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 1025;
-export const MAIL_FROM: string = process.env.MAIL_FROM || "no-reply@bazaarhub.local";
+// Real SMTP (Gmail) credentials. When both are set the mailer sends through
+// Gmail; otherwise it falls back to the local SMTP host (MailHog in dev).
+export const EMAIL_USER: string = process.env.EMAIL_USER || "";
+export const EMAIL_PASS: string = process.env.EMAIL_PASS || "";
+// Gmail rewrites the From to the authenticated account, so default the From to
+// the Gmail user when present, else the local dev placeholder.
+export const MAIL_FROM: string =
+  process.env.MAIL_FROM || (process.env.EMAIL_USER ? `BazaarHub <${process.env.EMAIL_USER}>` : "no-reply@bazaarhub.local");
 
 // ── Payments (escrow) ───────────────────────────────────────────────────
 export const PAYMENT_SECRET_KEY: string = process.env.PAYMENT_SECRET_KEY || "";
