@@ -20,11 +20,21 @@ export default function NewListingPage() {
   const [quantity, setQuantity] = useState("1");
   const [categories, setCategories] = useState<Category[]>([]);
   const [images, setImages] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const tree = buildCategoryTree(categories);
   const selectedParent = tree.find((t) => t.parent.id === parentCat);
   const subOptions = selectedParent?.children ?? [];
+
+  // Build (and clean up) object URLs for local image previews.
+  useEffect(() => {
+    const urls = images.map((f) => URL.createObjectURL(f));
+    setPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [images]);
+
+  const removeImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx));
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
@@ -109,6 +119,21 @@ export default function NewListingPage() {
           <div>
             <label htmlFor="l-images" className="block text-sm font-medium text-gray-700 mb-1">Images (up to 6)</label>
             <input id="l-images" type="file" multiple accept="image/*" onChange={(e) => setImages(Array.from(e.target.files || []).slice(0, 6))} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+            {previews.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-500 mb-2">Preview ({previews.length} image{previews.length !== 1 ? "s" : ""})</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {previews.map((src, i) => (
+                    <div key={i} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-100 bg-gray-50">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => removeImage(i)} aria-label="Remove image" className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/50 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70">✕</button>
+                      {i === 0 && <span className="absolute bottom-1 left-1 bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded">Cover</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm">
             {submitting ? "Creating..." : "Create Listing"}
