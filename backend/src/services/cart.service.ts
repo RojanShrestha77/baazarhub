@@ -102,6 +102,7 @@ export async function removeItem(userId: IdLike, listingId: IdLike): Promise<ICa
 interface ResolvedCartItem {
   listingId: Types.ObjectId;
   title?: string;
+  image?: string;
   quantity: number;
   unitPriceMinorUnits?: number;
   lineTotalMinorUnits?: number;
@@ -131,6 +132,7 @@ async function resolveCartItems(cart: ICart): Promise<ResolvedCartItem[]> {
     resolved.push({
       listingId: item.listingId,
       title: listing.title,
+      image: listing.images[0],
       quantity: item.quantity,
       unitPriceMinorUnits: listing.priceMinorUnits,
       lineTotalMinorUnits: listing.priceMinorUnits * item.quantity,

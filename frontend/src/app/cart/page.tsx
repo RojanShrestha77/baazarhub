@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Trash2, ShoppingCart, Minus, Plus, ArrowLeft, Shield } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, API_BASE } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Cart } from "@/types";
 import { formatPrice } from "@/types";
@@ -23,7 +23,7 @@ export default function CartPage() {
   }, [user, router]);
 
   const fetchCart = async () => {
-    try { setCart(await api.get<Cart>("/cart")); } catch { setCart(null); }
+    try { setCart(await api.get<Cart>("/cart")); window.dispatchEvent(new Event("cart-updated")); } catch { setCart(null); }
   };
 
   const updateQty = async (listingId: string, qty: number) => {
@@ -78,8 +78,12 @@ export default function CartPage() {
 
           {availableItems.map((item) => (
             <motion.div key={item.listingId} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-4 shadow-sm">
-              <Link href={`/listings/${item.listingId}`} className="w-16 h-16 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                <ShoppingCart className="w-7 h-7 text-indigo-300" />
+              <Link href={`/listings/${item.listingId}`} className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-100">
+                {item.image ? (
+                  <img src={`${API_BASE}/listings/${item.listingId}/images/${item.image}`} alt={item.title || ""} className="w-full h-full object-cover" />
+                ) : (
+                  <ShoppingCart className="w-7 h-7 text-indigo-300" />
+                )}
               </Link>
               <div className="flex-1 min-w-0">
                 <Link href={`/listings/${item.listingId}`} className="font-medium text-gray-900 hover:text-indigo-600 transition-colors text-sm truncate block">{item.title}</Link>

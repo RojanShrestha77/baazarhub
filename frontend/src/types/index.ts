@@ -134,6 +134,7 @@ export interface SearchResult {
 export interface ResolvedCartItem {
   listingId: string;
   title?: string;
+  image?: string;
   quantity: number;
   unitPriceMinorUnits?: number;
   lineTotalMinorUnits?: number;

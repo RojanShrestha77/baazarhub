@@ -11,6 +11,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
 
   // Poll the unread count while signed in (light, every 60s) so the badge
   // reflects notifications created by order/message/review events.
@@ -21,6 +22,20 @@ export default function Navbar() {
     load();
     const t = setInterval(load, 60000);
     return () => { active = false; clearInterval(t); };
+  }, [user]);
+
+  // Cart badge: total item quantity. Refreshes on mount and whenever a page
+  // dispatches a "cart-updated" event (add/update/remove).
+  useEffect(() => {
+    if (!user) { setCartCount(0); return; }
+    let active = true;
+    const load = () =>
+      api.get<{ items: { quantity: number }[] }>("/cart")
+        .then((d) => { if (active) setCartCount((d.items || []).reduce((n, i) => n + (i.quantity || 0), 0)); })
+        .catch(() => {});
+    load();
+    window.addEventListener("cart-updated", load);
+    return () => { active = false; window.removeEventListener("cart-updated", load); };
   }, [user]);
 
   return (
@@ -38,8 +53,11 @@ export default function Navbar() {
             <Link href="/marketplace" className="text-sm font-medium text-gray-600 hover:text-indigo-600 transition-colors">
               Marketplace
             </Link>
-            <Link href="/cart" className="relative text-gray-600 hover:text-indigo-600 transition-colors">
+            <Link href="/cart" className="relative text-gray-600 hover:text-indigo-600 transition-colors" aria-label={`Cart${cartCount ? ` (${cartCount} item${cartCount !== 1 ? "s" : ""})` : ""}`}>
               <ShoppingCart className="w-5 h-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{cartCount > 9 ? "9+" : cartCount}</span>
+              )}
             </Link>
             {user && (
               <Link href="/notifications" className="relative text-gray-600 hover:text-indigo-600 transition-colors" aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}>

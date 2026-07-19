@@ -119,6 +119,7 @@ export default function ListingClient() {
     setAdding(true);
     try {
       await api.post("/cart/items", { listingId: id, quantity });
+      window.dispatchEvent(new Event("cart-updated"));
       toast.success("Added to cart!");
     } catch (err: unknown) {
       toast.error("Failed to add to cart");
