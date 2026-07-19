@@ -170,9 +170,9 @@ export default function ListingClient() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Image gallery */}
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
-          <div className="aspect-square bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative group flex items-center justify-center p-4">
+          <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative group">
             {images ? (
-              <img src={`${API_BASE}/listings/${id}/images/${images[activeImage]}`} crossOrigin="use-credentials" alt={listing.title} className="max-w-full max-h-full object-contain group-hover:scale-[1.02] transition-transform duration-300" />
+              <img src={`${API_BASE}/listings/${id}/images/${images[activeImage]}`} crossOrigin="use-credentials" alt={listing.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
                 <ShoppingBag className="w-24 h-24 text-indigo-200" />
@@ -184,8 +184,8 @@ export default function ListingClient() {
           {images && images.length > 1 && (
             <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
               {images.map((img, i) => (
-                <button key={i} onClick={() => setActiveImage(i)} className={`w-16 h-16 flex-shrink-0 rounded-xl overflow-hidden border-2 bg-white flex items-center justify-center p-1 transition-all ${i === activeImage ? "border-indigo-500 ring-1 ring-indigo-500" : "border-gray-100 hover:border-gray-200"}`}>
-                  <img src={`${API_BASE}/listings/${id}/images/${img}`} crossOrigin="use-credentials" alt="" className="max-w-full max-h-full object-contain" />
+                <button key={i} onClick={() => setActiveImage(i)} className={`w-16 h-16 flex-shrink-0 rounded-xl overflow-hidden border-2 bg-gray-50 transition-all ${i === activeImage ? "border-indigo-500 ring-1 ring-indigo-500" : "border-gray-100 hover:border-gray-200"}`}>
+                  <img src={`${API_BASE}/listings/${id}/images/${img}`} crossOrigin="use-credentials" alt="" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
