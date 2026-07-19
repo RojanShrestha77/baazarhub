@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import {
   checkout as checkoutService,
+  confirmKhaltiPayment,
   markShipped,
   confirmDelivery,
   openDispute,
@@ -18,6 +19,7 @@ import {
   OwnListingError,
   ListingNotActiveError,
 } from "../services/escrow.service";
+import { KhaltiError } from "../services/khalti.service";
 import { OrderModel } from "../models/order.model";
 import { logEvent } from "../services/audit.service";
 import {
@@ -28,7 +30,7 @@ import {
   sendOrderReleasedNotification,
   sendOrderRefundedNotification,
 } from "../services/mail.service";
-import { CheckoutDto, ResolveDisputeDto, ShipDto } from "../validators/escrow.schema";
+import { CheckoutDto, ResolveDisputeDto, ShipDto, KhaltiVerifyDto } from "../validators/escrow.schema";
 
 export class EscrowController {
   private handleError(err: unknown, res: Response, next: NextFunction) {
@@ -38,16 +40,34 @@ export class EscrowController {
     if (err instanceof InsufficientQuantityError) return res.status(409).json({ error: err.message });
     if (err instanceof OwnListingError) return res.status(400).json({ error: err.message });
     if (err instanceof ListingNotActiveError) return res.status(400).json({ error: err.message });
+    if (err instanceof KhaltiError) return res.status(502).json({ error: err.message });
     next(err);
   }
 
   checkout = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.validatedBody as CheckoutDto;
-      const result = await checkoutService(body.listingId, body.quantity, req.user!._id);
-      logEvent({ actor: req.user!._id, action: "escrow_checkout", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: String(result.order._id) } }).catch(() => {});
-      sendPaymentReceivedNotification(req.user!._id, String(result.order._id));
-      return res.status(201).json({ orderId: result.order._id, clientSecret: result.clientSecret, totalMinorUnits: result.order.totalMinorUnits });
+      const result = await checkoutService(body.listingId, body.quantity, req.user!._id, body.paymentMethod || "cod");
+      logEvent({ actor: req.user!._id, action: "escrow_checkout", outcome: "success", ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: String(result.order._id), paymentMethod: result.paymentMethod } }).catch(() => {});
+      return res.status(201).json({
+        orderId: result.order._id,
+        paymentMethod: result.paymentMethod,
+        status: result.order.status,
+        totalMinorUnits: result.order.totalMinorUnits,
+        clientSecret: result.clientSecret, // stripe
+        paymentUrl: result.paymentUrl, // khalti — redirect the buyer here
+      });
+    } catch (err) {
+      this.handleError(err, res, next);
+    }
+  };
+
+  verifyKhalti = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { pidx } = req.validatedBody as KhaltiVerifyDto;
+      const { order, paid, status } = await confirmKhaltiPayment(pidx, req.user!._id);
+      logEvent({ actor: req.user!._id, action: "escrow_khalti_verify", outcome: paid ? "success" : "failure", ip: req.ip, userAgent: req.get("user-agent"), metadata: { orderId: String(order._id), status } }).catch(() => {});
+      return res.status(200).json({ orderId: order._id, paid, status });
     } catch (err) {
       this.handleError(err, res, next);
     }

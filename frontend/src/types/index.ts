@@ -179,8 +179,11 @@ export interface Order {
 
 export interface CheckoutResult {
   orderId: string;
-  clientSecret: string;
+  paymentMethod: "stripe" | "khalti" | "cod";
+  status: string;
   totalMinorUnits: number;
+  clientSecret?: string | null;
+  paymentUrl?: string;
 }
 
 export interface VerificationStatus {

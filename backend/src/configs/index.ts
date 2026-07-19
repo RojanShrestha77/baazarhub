@@ -58,5 +58,9 @@ export const MAIL_FROM: string =
 export const PAYMENT_SECRET_KEY: string = process.env.PAYMENT_SECRET_KEY || "";
 export const PAYMENT_WEBHOOK_SECRET: string = process.env.PAYMENT_WEBHOOK_SECRET || "";
 
+// ── Khalti (Nepali payment gateway) ─────────────────────────────────────
+export const KHALTI_SECRET_KEY: string = process.env.KHALTI_SECRET_KEY || "";
+export const KHALTI_BASE_URL: string = process.env.KHALTI_BASE_URL || "https://dev.khalti.com/api/v2";
+
 // ── Frontend ────────────────────────────────────────────────────────────
 export const FRONTEND_URL: string = process.env.FRONTEND_URL || CORS_ORIGIN;

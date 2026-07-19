@@ -3,6 +3,11 @@ import { z } from "zod";
 export const checkoutSchema = z.object({
   listingId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid listing ID"),
   quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+  paymentMethod: z.enum(["cod", "khalti", "stripe"]).optional(),
+});
+
+export const khaltiVerifySchema = z.object({
+  pidx: z.string().min(1, "pidx is required").max(200),
 });
 
 export const resolveDisputeSchema = z.object({
@@ -27,3 +32,4 @@ export const trackingUpdateSchema = shipSchema.refine(
 export type CheckoutDto = z.infer<typeof checkoutSchema>;
 export type ResolveDisputeDto = z.infer<typeof resolveDisputeSchema>;
 export type ShipDto = z.infer<typeof shipSchema>;
+export type KhaltiVerifyDto = z.infer<typeof khaltiVerifySchema>;

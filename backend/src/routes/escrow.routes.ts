@@ -4,13 +4,16 @@ import { requireEmailVerified } from "../middlewares/session";
 import { requireCsrfToken } from "../lib/csrf";
 import { escrowReadLimiter, escrowWriteLimiter } from "../middlewares/rate-limiters";
 import { validateBody, validateObjectIdParam } from "../middlewares/validate";
-import { checkoutSchema, resolveDisputeSchema, shipSchema, trackingUpdateSchema } from "../validators/escrow.schema";
+import { checkoutSchema, resolveDisputeSchema, shipSchema, trackingUpdateSchema, khaltiVerifySchema } from "../validators/escrow.schema";
 import { EscrowController } from "../controllers/escrow.controller";
 
 const router = createAuthzRouter();
 const escrow = new EscrowController();
 
 router.post("/checkout", [requireSession], requireEmailVerified, requireCsrfToken, escrowWriteLimiter, validateBody(checkoutSchema), escrow.checkout);
+
+// Khalti payment verification after the buyer returns from the gateway.
+router.post("/khalti/verify", [requireSession], requireCsrfToken, escrowWriteLimiter, validateBody(khaltiVerifySchema), escrow.verifyKhalti);
 
 router.get("/orders", [requireSession], escrowReadLimiter, escrow.listOrders);
 

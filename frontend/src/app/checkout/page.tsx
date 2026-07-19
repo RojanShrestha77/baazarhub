@@ -18,6 +18,7 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState<"review" | "processing" | "done">("review");
   const [orders, setOrders] = useState<CheckoutResult[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<"cod" | "khalti">("cod");
 
   useEffect(() => {
     if (!user) { router.push("/login"); return; }
@@ -36,9 +37,23 @@ export default function CheckoutPage() {
     try {
       const results: CheckoutResult[] = [];
       for (const item of availableItems) {
-        const result = await api.post<CheckoutResult>("/escrow/checkout", { listingId: item.listingId, quantity: item.quantity });
+        const result = await api.post<CheckoutResult>("/escrow/checkout", { listingId: item.listingId, quantity: item.quantity, paymentMethod });
         results.push(result);
       }
+
+      if (paymentMethod === "khalti") {
+        // Redirect to Khalti to pay for the first order. (Multi-item Khalti
+        // carts are paid one order at a time.)
+        const payable = results.find((r) => r.paymentUrl);
+        if (payable?.paymentUrl) {
+          window.location.href = payable.paymentUrl;
+          return;
+        }
+        throw new Error("Khalti did not return a payment link");
+      }
+
+      // COD — orders are placed immediately.
+      window.dispatchEvent(new Event("cart-updated"));
       setOrders(results);
       setStep("done");
       toast.success(`${results.length} order${results.length !== 1 ? "s" : ""} placed!`);
@@ -54,8 +69,8 @@ export default function CheckoutPage() {
     <div className="max-w-lg mx-auto px-4 py-20 text-center">
       <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6"><Package className="w-10 h-10 text-green-600" /></div>
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Placed!</h1>
-      <p className="text-gray-500 mb-2">{orders.length} order{orders.length !== 1 ? "s" : ""} created successfully.</p>
-      <p className="text-xs text-gray-400 mb-8">Your payment is held in escrow until delivery is confirmed.</p>
+      <p className="text-gray-500 mb-2">{orders.length} order{orders.length !== 1 ? "s" : ""} placed successfully.</p>
+      <p className="text-xs text-gray-400 mb-8">Cash on delivery — pay when your order arrives. Track it from your Orders page.</p>
       <div className="flex gap-3 justify-center">
         <Link href="/orders" className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-sm">View Orders</Link>
         <Link href="/marketplace" className="border border-gray-200 text-gray-700 px-6 py-2.5 rounded-xl font-medium hover:bg-gray-50 transition-colors">Continue Shopping</Link>
@@ -78,7 +93,16 @@ export default function CheckoutPage() {
               <CreditCard className="w-5 h-5 text-indigo-600" />
               <h2 className="font-semibold text-gray-900">Payment Method</h2>
             </div>
-            <p className="text-sm text-gray-500">Stripe secure checkout — your card is processed securely and funds are held in escrow until delivery confirmation.</p>
+            <div className="space-y-2">
+              <button type="button" onClick={() => setPaymentMethod("cod")} className={`w-full text-left flex items-center gap-3 p-3 rounded-xl border-2 transition-colors ${paymentMethod === "cod" ? "border-indigo-500 bg-indigo-50/50" : "border-gray-100 hover:border-gray-200"}`}>
+                <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${paymentMethod === "cod" ? "border-indigo-600 bg-indigo-600 ring-2 ring-indigo-200" : "border-gray-300"}`} />
+                <div><p className="text-sm font-medium text-gray-900">Cash on Delivery</p><p className="text-xs text-gray-500">Pay in cash when your order is delivered.</p></div>
+              </button>
+              <button type="button" onClick={() => setPaymentMethod("khalti")} className={`w-full text-left flex items-center gap-3 p-3 rounded-xl border-2 transition-colors ${paymentMethod === "khalti" ? "border-purple-500 bg-purple-50/50" : "border-gray-100 hover:border-gray-200"}`}>
+                <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${paymentMethod === "khalti" ? "border-purple-600 bg-purple-600 ring-2 ring-purple-200" : "border-gray-300"}`} />
+                <div><p className="text-sm font-medium text-gray-900">Khalti</p><p className="text-xs text-gray-500">Pay online via Khalti. You&apos;ll be redirected to complete payment.</p></div>
+              </button>
+            </div>
           </div>
 
           {/* Order items */}
@@ -114,7 +138,7 @@ export default function CheckoutPage() {
             <div className="flex justify-between text-base mb-1"><span className="font-semibold text-gray-900">Total</span><span className="font-bold text-indigo-600">{formatPrice(totalMinorUnits)}</span></div>
             <p className="text-xs text-gray-400 mb-4">Including escrow fee</p>
             <button onClick={handleCheckout} disabled={submitting || availableItems.length === 0} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all active:scale-[0.98] shadow-sm">
-              {submitting ? "Processing..." : `Pay ${formatPrice(totalMinorUnits)}`}
+              {submitting ? "Processing…" : paymentMethod === "cod" ? `Place Order — ${formatPrice(totalMinorUnits)}` : `Pay with Khalti — ${formatPrice(totalMinorUnits)}`}
             </button>
           </div>
         </div>

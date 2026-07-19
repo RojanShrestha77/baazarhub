@@ -16,6 +16,7 @@ import {
   sendOrderRefundedNotification,
 } from "./mail.service";
 import { notifyUser } from "./notification.service";
+import { initiateKhaltiPayment, lookupKhaltiPayment } from "./khalti.service";
 
 // In-app notification helper for order events — mirrors the transactional
 // emails, deep-linking to the order. Fire-and-forget, same as the emails.
@@ -199,7 +200,21 @@ export async function transitionOrder(
 }
 
 // ── Domain methods ──
-export async function checkout(listingId: IdLike, quantity: number, buyerId: IdLike) {
+export type PaymentMethod = "stripe" | "khalti" | "cod";
+
+export interface CheckoutResult {
+  order: IOrder;
+  paymentMethod: PaymentMethod;
+  clientSecret?: string | null; // stripe
+  paymentUrl?: string; // khalti — redirect the buyer here
+}
+
+export async function checkout(
+  listingId: IdLike,
+  quantity: number,
+  buyerId: IdLike,
+  paymentMethod: PaymentMethod = "stripe",
+): Promise<CheckoutResult> {
   const listing = await ListingModel.findById(listingId);
   if (!listing || listing.status !== "active") throw new ListingNotActiveError();
   if (String(listing.sellerId) === String(buyerId)) throw new OwnListingError();
@@ -210,54 +225,89 @@ export async function checkout(listingId: IdLike, quantity: number, buyerId: IdL
   const holdDurationMs = HOLD_DURATION_MS[sellerTier] || HOLD_DURATION_MS.unverified;
   const totalMinorUnits = listing.priceMinorUnits * quantity;
 
-  // Reserve stock atomically before creating the payment intent — the
-  // conditional $inc can't oversell.
+  // Reserve stock atomically before taking payment — the conditional $inc
+  // can't oversell. Rolled back below if the chosen payment path fails.
   const reserved = await ListingModel.findOneAndUpdate(
     { _id: listingId, quantity: { $gte: quantity } },
     { $inc: { quantity: -quantity } },
     { new: true },
   );
   if (!reserved) throw new InsufficientQuantityError();
+  const rollbackStock = () => ListingModel.findOneAndUpdate({ _id: listingId }, { $inc: { quantity } });
 
-  let paymentIntent;
-  try {
-    paymentIntent = await stripeService.createPaymentIntent(totalMinorUnits, "npr", {
-      listingId: String(listing._id),
-      buyerId: String(buyerId),
-    });
-  } catch (err) {
-    // Roll back the stock reservation if the payment intent fails.
-    await ListingModel.findOneAndUpdate({ _id: listingId }, { $inc: { quantity: quantity } });
-    throw err;
-  }
-
-  const order = await OrderModel.create({
+  const base = {
     buyerId,
     sellerId: listing.sellerId,
     listingId: listing._id,
-    listingSnapshot: {
-      title: listing.title,
-      priceMinorUnits: listing.priceMinorUnits,
-      currency: listing.currency || "NPR",
-    },
+    listingSnapshot: { title: listing.title, priceMinorUnits: listing.priceMinorUnits, currency: listing.currency || "NPR" },
     quantity,
     totalMinorUnits,
-    stripePaymentIntentId: paymentIntent.id,
     holdDurationMs,
-    status: "created",
-  });
+  };
 
-  await EscrowEventModel.create({
-    orderId: order._id,
-    fromStatus: null,
-    toStatus: "created",
-    triggeredBy: buyerId,
-    triggerType: "buyer",
-    reason: "Order created via checkout",
-    metadata: { paymentIntentId: paymentIntent.id },
-  });
+  // ── Cash on Delivery: no online payment. Confirmed immediately; the buyer
+  // pays cash when the order is delivered. Goes straight to payment_held so
+  // the seller can ship. ──
+  if (paymentMethod === "cod") {
+    const order = await OrderModel.create({ ...base, paymentMethod: "cod", status: "payment_held" });
+    await EscrowEventModel.create({ orderId: order._id, fromStatus: null, toStatus: "payment_held", triggeredBy: buyerId, triggerType: "buyer", reason: "COD order placed — pay on delivery" });
+    notifyOrder(order.sellerId, order._id, "New order (Cash on Delivery)", `New COD order for "${listing.title}". Ship it and collect cash on delivery.`);
+    return { order, paymentMethod: "cod" };
+  }
 
-  return { order, clientSecret: paymentIntent.client_secret };
+  // ── Khalti: create order, initiate payment, return the redirect URL. The
+  // order moves to payment_held only after confirmKhaltiPayment verifies it. ──
+  if (paymentMethod === "khalti") {
+    const order = await OrderModel.create({ ...base, paymentMethod: "khalti", status: "created" });
+    let init;
+    try {
+      const buyer = await UserModel.findById(buyerId).select("email");
+      init = await initiateKhaltiPayment({
+        orderId: String(order._id),
+        amountPaisa: totalMinorUnits,
+        purchaseName: `BazaarHub — ${listing.title}`,
+        customerName: buyer?.email || "",
+        customerPhone: "",
+      });
+    } catch (err) {
+      await OrderModel.deleteOne({ _id: order._id });
+      await rollbackStock();
+      throw err;
+    }
+    order.khaltiPidx = init.pidx;
+    await order.save();
+    await EscrowEventModel.create({ orderId: order._id, fromStatus: null, toStatus: "created", triggeredBy: buyerId, triggerType: "buyer", reason: "Order created via Khalti checkout", metadata: { pidx: init.pidx } });
+    return { order, paymentMethod: "khalti", paymentUrl: init.payment_url };
+  }
+
+  // ── Stripe (legacy) ──
+  let paymentIntent;
+  try {
+    paymentIntent = await stripeService.createPaymentIntent(totalMinorUnits, "npr", { listingId: String(listing._id), buyerId: String(buyerId) });
+  } catch (err) {
+    await rollbackStock();
+    throw err;
+  }
+  const order = await OrderModel.create({ ...base, paymentMethod: "stripe", stripePaymentIntentId: paymentIntent.id, status: "created" });
+  await EscrowEventModel.create({ orderId: order._id, fromStatus: null, toStatus: "created", triggeredBy: buyerId, triggerType: "buyer", reason: "Order created via checkout", metadata: { paymentIntentId: paymentIntent.id } });
+  return { order, paymentMethod: "stripe", clientSecret: paymentIntent.client_secret };
+}
+
+// Verify a Khalti payment by pidx and, if completed, move the order to
+// payment_held. Returns whether it's now paid.
+export async function confirmKhaltiPayment(pidx: string, buyerId: IdLike): Promise<{ order: IOrder; paid: boolean; status: string }> {
+  const { status, purchaseOrderId } = await lookupKhaltiPayment(pidx);
+  const order = await OrderModel.findOne({ _id: purchaseOrderId, khaltiPidx: pidx });
+  if (!order || String(order.buyerId) !== String(buyerId)) throw new OrderNotFoundError();
+
+  if (status === "Completed" && order.status === "created") {
+    const result = await transitionOrder(order._id, "created", "payment_held", "buyer", buyerId, { reason: "Khalti payment completed", metadata: { pidx } });
+    if (result) {
+      notifyOrder(result.sellerId, result._id, "Payment received", `Khalti payment for "${result.listingSnapshot.title}" is confirmed. Ship to release funds.`);
+      return { order: result, paid: true, status };
+    }
+  }
+  return { order, paid: order.status === "payment_held", status };
 }
 
 export async function markShipped(orderId: IdLike, sellerId: IdLike, shipping: ShippingDetails = {}) {

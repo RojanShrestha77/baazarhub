@@ -31,7 +31,9 @@ export interface IOrder extends Document {
   quantity: number;
   totalMinorUnits: number;
   status: OrderStatus;
+  paymentMethod: "stripe" | "khalti" | "cod";
   stripePaymentIntentId?: string;
+  khaltiPidx?: string;
   holdDurationMs: number;
   shippedAt?: Date;
   carrier?: string;
@@ -65,7 +67,9 @@ const orderSchema = new Schema<IOrder>(
     quantity: { type: Number, required: true, min: 1 },
     totalMinorUnits: { type: Number, required: true, min: 0 },
     status: { type: String, enum: ORDER_STATUSES as unknown as string[], default: "created" },
+    paymentMethod: { type: String, enum: ["stripe", "khalti", "cod"], default: "stripe" },
     stripePaymentIntentId: { type: String },
+    khaltiPidx: { type: String },
     holdDurationMs: { type: Number, required: true },
     // Shipping / delivery tracking — set when the seller marks the order
     // shipped. carrier + trackingNumber are seller-provided and optional.
