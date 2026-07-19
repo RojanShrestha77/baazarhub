@@ -170,22 +170,22 @@ export default function ListingClient() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Image gallery */}
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
-          <div className="aspect-square bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl overflow-hidden border border-gray-100 relative group">
+          <div className="aspect-square bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative group flex items-center justify-center p-4">
             {images ? (
-              <img src={`${API_BASE}/listings/${id}/images/${images[activeImage]}`} crossOrigin="use-credentials" alt={listing.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
+              <img src={`${API_BASE}/listings/${id}/images/${images[activeImage]}`} crossOrigin="use-credentials" alt={listing.title} className="max-w-full max-h-full object-contain group-hover:scale-[1.02] transition-transform duration-300" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
                 <ShoppingBag className="w-24 h-24 text-indigo-200" />
               </div>
             )}
             {isSold && <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-white text-2xl font-bold bg-red-500 px-6 py-2 rounded-xl">Sold</span></div>}
-            {isDraft && <div className="absolute top-3 left-3 bg-gray-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">Draft</div>}
+            {isDraft && <div className="absolute top-3 left-3 bg-gray-700 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow">Draft</div>}
           </div>
           {images && images.length > 1 && (
             <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
               {images.map((img, i) => (
-                <button key={i} onClick={() => setActiveImage(i)} className={`w-16 h-16 flex-shrink-0 rounded-xl overflow-hidden border-2 transition-all ${i === activeImage ? "border-indigo-500 ring-1 ring-indigo-500" : "border-gray-100 hover:border-gray-200"}`}>
-                  <img src={`${API_BASE}/listings/${id}/images/${img}`} crossOrigin="use-credentials" alt="" className="w-full h-full object-cover" />
+                <button key={i} onClick={() => setActiveImage(i)} className={`w-16 h-16 flex-shrink-0 rounded-xl overflow-hidden border-2 bg-white flex items-center justify-center p-1 transition-all ${i === activeImage ? "border-indigo-500 ring-1 ring-indigo-500" : "border-gray-100 hover:border-gray-200"}`}>
+                  <img src={`${API_BASE}/listings/${id}/images/${img}`} crossOrigin="use-credentials" alt="" className="max-w-full max-h-full object-contain" />
                 </button>
               ))}
             </div>
